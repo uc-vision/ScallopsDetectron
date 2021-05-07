@@ -22,20 +22,21 @@ augs = transforms.AugmentationList([transforms.RandomBrightness(0.5, 2),
         transforms.RandomContrast(0.5, 2),
         transforms.RandomSaturation(0.5, 2),
         transforms.RandomFlip(prob=0.5),
-        transforms.RandomExtent(scale_range=(0.1, 2), shift_range=(1, 1))])
+        transforms.RandomExtent(scale_range=(0.1, 2), shift_range=(0.5, 0.5))])
 class Trainer(DefaultTrainer):
     @classmethod
     def build_train_loader(cls, cfg):
         mapper = DatasetMapper(cfg, is_train=True, augmentations=augs)
         return build_detection_train_loader(cfg, mapper=mapper)
 
-
-for d in ["train", "valid"]:
+dem_paths.sort()
+ortho_paths.sort()
+for d in ["sdgh"]: #, "valid"
     with open(DATASET_DIR + d + "/labels.json", 'r') as fp:
         dataset_dicts = json.load(fp)
     DatasetCatalog.register(DATASET_DIR + d, lambda d=d: dataset_dicts)
     MetadataCatalog.get(DATASET_DIR + d).set(thing_classes=["scallop"])
-scallop_metadata = MetadataCatalog.get(DATASET_DIR + "train")
+scallop_metadata = MetadataCatalog.get(DATASET_DIR + "sdgh")
 
 cfg = get_cfg()
 if USE_SAVED_MODEL:
@@ -46,7 +47,7 @@ else:
     cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
 
 if True:
-    for d in random.sample(dataset_dicts, 100):
+    for d in random.sample(dataset_dicts, 1):
         img = cv2.imread(d["file_name"])
         input = transforms.AugInput(img)
         transform = augs(input)
