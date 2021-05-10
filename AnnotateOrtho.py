@@ -24,6 +24,7 @@ def draw_ann(event, x, y, flags, param):
     if event==cv2.EVENT_RBUTTONDOWN:
         poly_vert_list.append([x, y])
 
+
 wrld_poly_points = []
 cv2.namedWindow("ortho_ann", cv2.WINDOW_GUI_NORMAL)
 cv2.setMouseCallback("ortho_ann", draw_ann)
