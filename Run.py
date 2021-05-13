@@ -1,26 +1,26 @@
-# import some common detectron2 utilities
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import MetadataCatalog
 import cv2
 import os
-import pathlib as P
+import pathlib
+import Params as P
 
-TEST_IMG_DIR = "/home/cosc/research/CVlab/bluerov_data/210113-064700/"#"/local/ScallopMaskDataset/test/"
-BAYER = True
+TEST_IMG_DIR = "/local/ScallopMaskDataset/train/"#"/home/cosc/research/CVlab/bluerov_data/210113-064700/"#"/local/ScallopMaskDataset/test/"
+BAYER = False
 
-paths = P.Path(TEST_IMG_DIR)
+paths = pathlib.Path(TEST_IMG_DIR)
 img_fns = [str(fn) for fn in paths.iterdir()]
 
 cfg = get_cfg()
 cfg.merge_from_file('config.yml')
-cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, "model_final.pth")
+cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, P.MODEL_PATH)
 cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
 cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.2
 cfg.DATASETS.TEST = ("/local/ScallopMaskDataset/val", )
 predictor = DefaultPredictor(cfg)
-DS_DIV = 1
+DS_DIV = 2
 
 for path in img_fns:
     im = cv2.imread(path)

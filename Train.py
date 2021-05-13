@@ -13,41 +13,40 @@ import cv2
 import random
 import numpy as np
 print(torch.__version__)
+import Params as P
 
 USE_SAVED_MODEL = True
+SHOW_INPUTS = False
 
-DATASET_DIR = "/local/ScallopMaskDataset/"
-
-augs = transforms.AugmentationList([transforms.RandomBrightness(0.5, 2),
-        transforms.RandomContrast(0.5, 2),
-        transforms.RandomSaturation(0.5, 2),
+augs = transforms.AugmentationList([transforms.RandomBrightness(0.5, 1.5),
+        transforms.RandomContrast(0.5, 1.5),
+        transforms.RandomSaturation(0.5, 1.5),
         transforms.RandomFlip(prob=0.5),
-        transforms.RandomExtent(scale_range=(0.1, 2), shift_range=(0.5, 0.5))])
+        transforms.RandomExtent(scale_range=(0.1, 3), shift_range=(0.5, 0.5)),
+        transforms.Resize(P.CNN_INPUT_SHAPE)])
 class Trainer(DefaultTrainer):
     @classmethod
     def build_train_loader(cls, cfg):
         mapper = DatasetMapper(cfg, is_train=True, augmentations=augs)
         return build_detection_train_loader(cfg, mapper=mapper)
 
-dem_paths.sort()
-ortho_paths.sort()
-for d in ["sdgh"]: #, "valid"
-    with open(DATASET_DIR + d + "/labels.json", 'r') as fp:
+for d in ["train"]: #, "valid"
+    with open(P.DATASET_DIR + d + "/labels.json", 'r') as fp:
         dataset_dicts = json.load(fp)
-    DatasetCatalog.register(DATASET_DIR + d, lambda d=d: dataset_dicts)
-    MetadataCatalog.get(DATASET_DIR + d).set(thing_classes=["scallop"])
-scallop_metadata = MetadataCatalog.get(DATASET_DIR + "sdgh")
+    DatasetCatalog.register(P.DATASET_DIR + d, lambda d=d: dataset_dicts)
+    MetadataCatalog.get(P.DATASET_DIR + d).set(thing_classes=["scallop"])
+scallop_metadata = MetadataCatalog.get(P.DATASET_DIR + "train")
 
 cfg = get_cfg()
 if USE_SAVED_MODEL:
     cfg.merge_from_file('config.yml')
-    cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, "model_final.pth")
+    cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, P.MODEL_PATH)
 else:
     cfg.merge_from_file("./detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
     cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
 
-if True:
-    for d in random.sample(dataset_dicts, 1):
+if SHOW_INPUTS:
+    for d in random.sample(dataset_dicts, 10):
         img = cv2.imread(d["file_name"])
         input = transforms.AugInput(img)
         transform = augs(input)
@@ -56,24 +55,23 @@ if True:
         visualizer = Visualizer(img[:, :, ::-1], metadata=scallop_metadata, scale=0.5)
         vis = visualizer.draw_dataset_dict(d)
         img = vis.get_image()[:, :, ::-1]
-        print(img.shape)
         cv2.imshow("Original image", img)
 
         visualizer = Visualizer(image_transformed[:, :, ::-1], metadata=scallop_metadata, scale=0.5)
         vis = visualizer.draw_dataset_dict(d)
         image_transformed = vis.get_image()[:, :, ::-1]
-        print(image_transformed.shape)
         cv2.imshow("Aug image", image_transformed)
         cv2.waitKey()
 
-cfg.DATASETS.TRAIN = ("/local/ScallopMaskDataset/train",)
+cfg.DATASETS.TRAIN = (P.DATASET_DIR + "train",)
 cfg.DATASETS.TEST = () #"/local/ScallopMaskDataset/valid"
 cfg.DATALOADER.NUM_WORKERS = 2
 cfg.SOLVER.IMS_PER_BATCH = 2
-cfg.SOLVER.BASE_LR = 0.00025
-cfg.SOLVER.MAX_ITER = 1000
+cfg.SOLVER.BASE_LR = 0.001
+cfg.SOLVER.MAX_ITER = 300
 cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 128
 cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1
+#cfg.MODEL.BACKBONE.FREEZE_AT = 2
 print(cfg)
 
 os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)

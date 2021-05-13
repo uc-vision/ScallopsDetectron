@@ -8,11 +8,12 @@ from detectron2.structures import BoxMode
 import Params as P
 import pickle
 
-
-DISPLAY = False
+DISPLAY = True
+WRITE = False
 
 DATASET_DIR = "/local/ScallopMaskDataset/train/"
-[path.unlink() for path in p.Path(DATASET_DIR).iterdir()]
+if WRITE:
+    [path.unlink() for path in p.Path(DATASET_DIR).iterdir()]
 with open(P.POLY_ANN_LIST_FN, "rb") as f:
     ann_polys = np.array(pickle.load(f), dtype="object")
 
@@ -31,7 +32,6 @@ with open(P.METASHAPE_OUTPUT_DIR + 'cam_filenames.txt') as f:
     cam_filenames = f.read().splitlines()
 f.close()
 camMtx = np.load(P.METASHAPE_OUTPUT_DIR + 'camMtx.npy')
-print(camMtx)
 camDist = np.load(P.METASHAPE_OUTPUT_DIR + 'camDist.npy')
 x0, y0 = camMtx[:2, 2]
 h,  w = (2160, 3840)
@@ -41,6 +41,7 @@ fx = newcameramtx[0, 0]
 fy = newcameramtx[1, 1]
 FOV = [math.degrees(2*math.atan(w_ud / (2*fx))),
        math.degrees(2*math.atan(h_ud / (2*fy)))]
+print(FOV)
 
 print("Creating dataset...")
 label_dict = []
@@ -49,7 +50,8 @@ for idx, (cam_frame, cam_img_path) in tqdm(enumerate(list(zip(cam_coords, cam_fi
     img_cam_und = cv2.undistort(img_cam, cameraMatrix=camMtx, distCoeffs=camDist, newCameraMatrix=newcameramtx)
     img_shape = img_cam_und.shape
     img_fn = DATASET_DIR+str(idx)+"_imgUD"+".jpg"
-    #cv2.imwrite(img_fn, img_cam_und)
+    if WRITE:
+        cv2.imwrite(img_fn, img_cam_und)
     record = {}
     height, width = img_cam_und.shape[:2]
     record["file_name"] = img_fn
@@ -96,5 +98,6 @@ for idx, (cam_frame, cam_img_path) in tqdm(enumerate(list(zip(cam_coords, cam_fi
         if key == ord('q'):
             exit(0)
 
-with open(DATASET_DIR + "labels.json", 'w') as fp:
-    json.dump(label_dict, fp)
+if WRITE:
+    with open(DATASET_DIR + "labels.json", 'w') as fp:
+        json.dump(label_dict, fp)
