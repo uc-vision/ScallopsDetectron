@@ -3,11 +3,8 @@ import cv2
 import math
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-import pathlib
 import Params as P
-import os
 from detectron2.engine import DefaultPredictor
-from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import MetadataCatalog
 import VTKPointCloud as PC
@@ -15,8 +12,9 @@ import vtk
 import Metashape
 import time
 
+
 SHOW = False
-EDGE_LIMIT_PIX = int(0.05 / (P.PIXEL_SCALE * P.ORTHO_SCALE))
+EDGE_LIMIT_PIX = 200
 METASHAPE_INFERENCE_DIRECTORY = "/local/ScallopMaskDataset/Metashape_output/"
 
 
@@ -44,35 +42,37 @@ camDist = np.array([[c.k1, c.k2, c.p2, c.p1, c.k3]])
 x0, y0 = camMtx[:2, 2]
 h,  w = (2160, 3840)
 newcameramtx, roi = cv2.getOptimalNewCameraMatrix(camMtx, camDist, (w,h), 0, (w,h))
-w_ud, h_ud = roi[2:]
+x_ud, y_ud, w_ud, h_ud = roi
 fx = newcameramtx[0, 0]
 fy = newcameramtx[1, 1]
 FOV = [math.degrees(2*math.atan(w_ud / (2*fx))),
        math.degrees(2*math.atan(h_ud / (2*fy)))]
 #print(FOV)
 
-cfg = get_cfg()
-cfg.merge_from_file('config.yml')
-cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, P.MODEL_PATH)
+cfg = P.cfg
 cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.92
 cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.2
 cfg.DATASETS.TEST = ("/local/ScallopMaskDataset/val", )
 predictor = DefaultPredictor(cfg)
 
 scallop_detections = []
-for cam in tqdm(cameras[::50]):
+for cam in tqdm(cameras[::1]):
     start_time = time.time()
     cam_img_path = cam.photo.path
     cam_quart = np.array(cam.transform).reshape((4, 4))
     img_cam = cv2.imread(cam_img_path)
-    img_cam = cv2.undistort(img_cam, cameraMatrix=camMtx, distCoeffs=camDist, newCameraMatrix=newcameramtx)
-    img_shape = img_cam.shape
-    edge_box = (EDGE_LIMIT_PIX, EDGE_LIMIT_PIX, img_shape[1]-EDGE_LIMIT_PIX, img_shape[0]-EDGE_LIMIT_PIX)
+    img_cam_ud = cv2.undistort(img_cam, cameraMatrix=camMtx, distCoeffs=camDist, newCameraMatrix=newcameramtx)
     img_depth_ms = chunk.model.renderDepth(cam.transform, cam.sensor.calibration, add_alpha=False)
-    img_depth_np = np.frombuffer(img_depth_ms.tostring(), dtype=np.float32).reshape((img_cam.shape[0], img_cam.shape[1], 1))
+    img_depth_np = np.frombuffer(img_depth_ms.tostring(), dtype=np.float32).reshape((img_cam_ud.shape[0], img_cam_ud.shape[1], 1))
 
-    outputs = predictor(img_cam)
-    v = Visualizer(img_cam[:, :, ::-1], MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1)
+    #img_cam_und_roi = img_cam_ud[y_ud:y_ud+h_ud, x_ud:x_ud+w_ud]
+    #img_depth_np = img_depth_np[y_ud:y_ud+h_ud, x_ud:x_ud+w_ud]
+    img_shape = img_cam_ud.shape
+
+    edge_box = (EDGE_LIMIT_PIX, EDGE_LIMIT_PIX, img_shape[1]-EDGE_LIMIT_PIX, img_shape[0]-EDGE_LIMIT_PIX)
+
+    outputs = predictor(img_cam_ud)
+    v = Visualizer(img_cam_ud[:, :, ::-1], MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1)
     instances = outputs["instances"].to("cpu")
     v = v.draw_instance_predictions(instances)
     out_image = v.get_image()[:, :, ::-1].copy()
@@ -85,13 +85,23 @@ for cam in tqdm(cameras[::50]):
         if edge_box[0] <= x <= edge_box[2] and edge_box[1] <= y <= edge_box[3]:
             cv2.circle(out_image, (int(x), int(y)), int(radius), color=(0, 255, 0), thickness=2)
             #TODO: scallopness contour classification
-            #TODO: work out if depth images are undistorted or what
-            z_val = img_depth_np[int(y), int(x)] - cam_quart[2, 3]
-            scallop_pnts_cam = CamPixToWrldPnt(np.array([[x, x-radius, x+radius], [y, y, y]]), camMtx)
-            scallop_pnts_wrld = CamToWrld(scallop_pnts_cam, cam_quart) * z_val
 
-            pnt_3D = scallop_pnts_wrld[:, 0] #cam.unproject(np.array([[x], [y]])) * z_val
-            size_3D = np.linalg.norm(scallop_pnts_wrld[:, 1] - scallop_pnts_wrld[:, 2]) #cam.unproject(np.array([[x-radius], [y]])) - cam.unproject(np.array([[x+radius], [y]])))
+            mask_pnts_sub = mask_pnts[::50, :]
+            mask_pnt_array = np.repeat(mask_pnts_sub[:, None, :], mask_pnts_sub.shape[0], axis=1)
+            mask_pnt_dists = np.linalg.norm(mask_pnt_array - mask_pnt_array.transpose((1, 0, 2)), axis=2)
+            max_dist_idxs = np.unravel_index(mask_pnt_dists.argmax(), mask_pnt_dists.shape)
+            extrema_pnts = mask_pnts_sub[max_dist_idxs, :].transpose() #[[x1, x2], [y1, y2]]
+            pnt_elavations = img_depth_np[[int(extrema_pnts[1, 0]), int(extrema_pnts[1, 1])], [int(extrema_pnts[0, 0]), int(extrema_pnts[0, 1])]]
+
+            scallop_pnts_cam = CamPixToWrldPnt(extrema_pnts, camMtx)
+            scallop_pnts_cam = scallop_pnts_cam * pnt_elavations.transpose()
+            scallop_pnts_wrld = P.METASHAPE_SCALE * CamToWrld(scallop_pnts_cam, cam_quart)
+            size_3D = np.clip(np.linalg.norm(scallop_pnts_wrld[:, 0] - scallop_pnts_wrld[:, 1]), 0.01, 0.15)
+            pnt_3D = (scallop_pnts_wrld[:, 0] + scallop_pnts_wrld[:, 1]) / 2
+
+            cv2.circle(out_image, (int(extrema_pnts[0, 0]), int(extrema_pnts[1, 0])), 10, color=(0, 0, 255), thickness=-1)
+            cv2.circle(out_image, (int(extrema_pnts[0, 1]), int(extrema_pnts[1, 1])), 10, color=(0, 0, 255), thickness=-1)
+
             scallop_detections.append((pnt_3D, size_3D, score.numpy()))
 
     if SHOW:
@@ -118,8 +128,8 @@ vtk_axes = vtk.vtkAxesActor()
 ren.AddActor(vtk_axes)
 iren.Initialize()
 
-scallop_pnts_wrld = P.ORTHO_SCALE * np.array([loc for loc, rad, score in scallop_detections])
-scallop_sizes = P.ORTHO_SCALE * np.array([size for loc, size, conf in scallop_detections])
+scallop_pnts_wrld = np.array([loc for loc, rad, score in scallop_detections])
+scallop_sizes = np.array([size for loc, size, conf in scallop_detections])
 
 len_pnts = scallop_pnts_wrld.shape[0]
 pnt_cld.setPoints(scallop_pnts_wrld, np.array(len_pnts*[[0, 1, 0]]))
@@ -142,8 +152,8 @@ plt.figure(2)
 plt.title("Scallop Size Distribution (freq. vs size [m])")
 plt.ylabel("Frequency")
 plt.xlabel("Scallop Width [m]")
-plt.hist(scallop_sizes, bins=50)
-plt.figtext(0.15, 0.85, "Total count: {}".format(scallop_pnts_wrld.shape[0]))
+plt.hist(scallop_sizes, bins=100)
+plt.figtext(0.15, 0.85, "Total count: {}".format(extr.GetNumberOfExtractedClusters()))
 plt.grid(True)
 plt.savefig(P.INFERENCE_OUTPUT_DIR + "ScallopSizeDistImg.jpeg")
 plt.show()
@@ -155,7 +165,7 @@ subMapper.SetScaleFactor(0.05)
 subMapper.SetScalarRange(0, extr.GetNumberOfExtractedClusters())
 subActor = vtk.vtkActor()
 subActor.SetMapper(subMapper)
-ren.AddActor(subActor)
+#ren.AddActor(subActor)
 print(extr.GetNumberOfExtractedClusters())
 
 #confs_wrld = points_wrld[:, 7] * 255

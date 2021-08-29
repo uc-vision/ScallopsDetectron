@@ -7,16 +7,14 @@ import os
 import pathlib
 import Params as P
 
-TEST_IMG_DIR = "/local/ScallopMaskDataset/train/"#"/home/cosc/research/CVlab/bluerov_data/210113-064700/"#"/local/ScallopMaskDataset/test/"
-BAYER = False
+TEST_IMG_DIR = "/home/cosc/research/CVlab/bluerov_data/210113-064700/"#"/local/ScallopMaskDataset/test/""/local/ScallopMaskDataset/train/"#
+BAYER = True#False
 
 paths = pathlib.Path(TEST_IMG_DIR)
 img_fns = [str(fn) for fn in paths.iterdir()]
 
-cfg = get_cfg()
-cfg.merge_from_file('config.yml')
-cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, P.MODEL_PATH)
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
+cfg = P.cfg
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
 cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.2
 cfg.DATASETS.TEST = ("/local/ScallopMaskDataset/val", )
 predictor = DefaultPredictor(cfg)
