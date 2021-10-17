@@ -10,9 +10,10 @@ DATASETS:
   PRECOMPUTED_PROPOSAL_TOPK_TRAIN: 2000
   PROPOSAL_FILES_TEST: []
   PROPOSAL_FILES_TRAIN: []
-  TEST: []
+  TEST:
+  - /local/ScallopMaskDataset/valid_lr
   TRAIN:
-  - /local/ScallopMaskDataset/train
+  - /local/ScallopMaskDataset/train_lr
 GLOBAL:
   HACK: 1.0
 INPUT:
@@ -285,9 +286,9 @@ SOLVER:
     ENABLED: false
     NORM_TYPE: 2.0
   GAMMA: 0.1
-  IMS_PER_BATCH: 4
+  IMS_PER_BATCH: 2
   LR_SCHEDULER_NAME: WarmupMultiStepLR
-  MAX_ITER: 400
+  MAX_ITER: 5000
   MOMENTUM: 0.9
   NESTEROV: false
   REFERENCE_WORLD_SIZE: 0
@@ -316,7 +317,7 @@ TEST:
     - 1100
     - 1200
   DETECTIONS_PER_IMAGE: 100
-  EVAL_PERIOD: 0
+  EVAL_PERIOD: 10
   EXPECTED_RESULTS: []
   KEYPOINT_OKS_SIGMAS: []
   PRECISE_BN:

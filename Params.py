@@ -1,15 +1,19 @@
-DATASET_DIR = "/local/ScallopMaskDataset/"
+ROV_DATA = True
+INPUT_DATA_PATH = '/home/cosc/research/CVlab/bluerov_data/210113-065012/'
+
+METASHAPE_OUTPUT_DIR = '/local/ScallopReconstructions/lowres_scan_210113_065012/'
+METASHAPE_CHKPNT_PATH = METASHAPE_OUTPUT_DIR + 'recon.psx'
+POLY_ANN_LIST_PATH = METASHAPE_OUTPUT_DIR + "PolyAnnList_lr.csv"
+
+DATASET_DIR_BASE = "/local/ScallopMaskDataset/"
+DATASET_DIR = DATASET_DIR_BASE + "valid_lr/"
 MODEL_PATH = "model_final.pth"
 CNN_INPUT_SHAPE = (1080, 1920) #(3840, 2160)
 
-METASHAPE_CHKPNT_PATH = '/local/ROV_footage/lowres_scan_210114_023202/recon.psx'#'/home/cosc/research/CVlab/GoPro Ortho TEMP/checkpoint.psx'
-METASHAPE_OUTPUT_DIR = "/local/ScallopMaskDataset/Metashape_output_lowres/" #
-
 INFERENCE_OUTPUT_DIR = "/local/ScallopInferenceOutput/Test/"
-POLY_ANN_LIST_FN = "PolyAnnList_lr.csv"
+
 TILE_SIZE = 5000
-PIXEL_SCALE = 0.001 # meters per pixel
-METASHAPE_SCALE = 0.2674 # actual size / ortho scale #TODO: double check scale measurement
+PIXEL_SCALE = 0.0005 # meters per pixel
 
 from detectron2.config import get_cfg
 import os
