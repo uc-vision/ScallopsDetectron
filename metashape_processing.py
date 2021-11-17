@@ -14,7 +14,7 @@ from tqdm import tqdm
 if P.ROV_DATA:
     [path.unlink() for path in p.Path(P.METASHAPE_OUTPUT_DIR + 'left/').iterdir()]
     print("Converting images to png...")
-    folder_root = pathlib.Path(P.INPUT_DATA_PATH)
+    folder_root = pathlib.Path(P.ROV_DATA_PATH)
     file_list = [str(item) for item in folder_root.iterdir()]
     file_list.sort()
     left_imgs = [i for i in file_list if 'l0' in i]

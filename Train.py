@@ -2,21 +2,9 @@ import pathlib as p
 import torch, torchvision
 import json
 from detectron2.engine import DefaultTrainer
-from detectron2.config import get_cfg
-from detectron2.structures import BoxMode
 from detectron2.data import DatasetCatalog, MetadataCatalog, transforms
 from detectron2.data import build_detection_train_loader, build_detection_test_loader
 from detectron2.data import DatasetMapper
-from detectron2.evaluation import (
-    CityscapesInstanceEvaluator,
-    CityscapesSemSegEvaluator,
-    COCOPanopticEvaluator,
-    DatasetEvaluators,
-    LVISEvaluator,
-    PascalVOCDetectionEvaluator,
-    SemSegEvaluator,
-    verify_results,
-)
 from detectron2.utils.visualizer import Visualizer
 import os
 import cv2
@@ -26,7 +14,7 @@ print(torch.__version__)
 import Params as P
 import DetectronLossHooks as DLH
 
-SHOW_INPUTS = False
+SHOW_INPUTS = True
 TRAIN_SUBDIR = "train_lr"
 VAL_SUBDIR = "valid_lr"
 
@@ -80,7 +68,7 @@ class MyTrainer(DefaultTrainer):
             hooks.insert(-1, loss_eval_hook)
         return hooks
 
-
+# dataset dicts pointer rewritten making it train on valid!
 for d in [TRAIN_SUBDIR, VAL_SUBDIR]:
     with open(P.DATASET_DIR_BASE + d + "/labels.json", 'r') as fp:
         dataset_dicts = json.load(fp)
@@ -91,6 +79,7 @@ scallop_metadata = MetadataCatalog.get(P.DATASET_DIR_BASE + TRAIN_SUBDIR)
 if SHOW_INPUTS:
     for d in random.sample(dataset_dicts, 100):
         img = cv2.imread(d["file_name"])
+        print(d)
         visualizer = Visualizer(img[:, :, ::-1], metadata=scallop_metadata, scale=0.5)
         vis = visualizer.draw_dataset_dict(d)
         img = vis.get_image()[:, :, ::-1]
@@ -109,7 +98,7 @@ cfg.TEST.EVAL_PERIOD = 10
 cfg.DATALOADER.NUM_WORKERS = 2
 cfg.SOLVER.IMS_PER_BATCH = 2
 cfg.SOLVER.BASE_LR = 0.001
-cfg.SOLVER.MAX_ITER = 8000
+cfg.SOLVER.MAX_ITER = 25000
 cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 128
 cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1
 #cfg.MODEL.BACKBONE.FREEZE_AT = 2

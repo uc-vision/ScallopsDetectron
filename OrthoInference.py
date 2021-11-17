@@ -9,9 +9,9 @@ from detectron2.engine import DefaultPredictor
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import MetadataCatalog
 
-SHOW = False
+SHOW = True
 INFERENCE_ORTHO_PATH = P.METASHAPE_OUTPUT_DIR + "ortho/"
-EDGE_LIMIT_PIX = int(0.05 / (P.PIXEL_SCALE * P.METASHAPE_SCALE))  # How close a detection can be to the border to be counted
+EDGE_LIMIT_PIX = int(0.05 / P.PIXEL_SCALE)  # How close a detection can be to the border to be counted
 OVERLAP_PIX = 2*EDGE_LIMIT_PIX
 
 cfg = P.cfg
@@ -93,7 +93,7 @@ for y_idx in tqdm(range(num_subs_y)):
                 extrema_pnts = mask_pnts_sub[max_dist_idxs, :].transpose() #[[x1, x2], [y1, y2]]
                 global_pnts = extrema_pnts + [2*[sub_idx_x], 2*[sub_idx_y]]
                 pnt_elavations = dem_full[[int(global_pnts[1, 0]), int(global_pnts[1, 1])], [int(global_pnts[0, 0]), int(global_pnts[0, 1])]]
-                pnts_3D = np.vstack([global_pnts*P.PIXEL_SCALE, pnt_elavations.transpose()]) * P.METASHAPE_SCALE
+                pnts_3D = np.vstack([global_pnts*P.PIXEL_SCALE, pnt_elavations.transpose()])
                 size_3D = np.clip(np.linalg.norm(pnts_3D[:, 0] - pnts_3D[:, 1]), 0.01, 0.15)
 
                 cv2.circle(out_image, (int(extrema_pnts[0, 0]), int(extrema_pnts[1, 0])), 10, color=(0, 0, 255), thickness=-1)
@@ -125,7 +125,7 @@ for y_idx in tqdm(range(num_subs_y)):
 
 scallop_pnts = np.array([loc for loc, ssize, conf in scallop_detections])
 #scallop_pnts[:, 1] = np.max(scallop_pnts[:, 1]) - scallop_pnts[:, 1]
-scallop_pnts = (scallop_pnts * P.PIXEL_SCALE + ortho_origin[:2]) * P.METASHAPE_SCALE
+scallop_pnts = (scallop_pnts * P.PIXEL_SCALE + ortho_origin[:2])
 scallop_sizes = np.array([ssize for loc, ssize, conf in scallop_detections])
 plt.figure(1)
 plt.title("Scallop Spatial Distribution [m]")

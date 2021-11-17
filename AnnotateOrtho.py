@@ -6,6 +6,8 @@ import Params as P
 import pickle
 import math
 
+WRITE = True
+
 ortho_paths = [str(path) for path in p.Path(P.METASHAPE_OUTPUT_DIR + 'ortho/').iterdir()]
 dem_paths = [str(path) for path in p.Path(P.METASHAPE_OUTPUT_DIR + 'dem/').iterdir()]
 dem_paths.sort()
@@ -16,6 +18,11 @@ path_tuples = list(zip(ortho_paths, dem_paths))
 tile_offsets = np.array([[float(path.split('-')[-2]), -float(path.split('-')[-1][:-4])] for path in ortho_paths])
 tile_offsets *= P.TILE_SIZE
 ortho_origin = np.load(P.METASHAPE_OUTPUT_DIR + 'ortho_origin.npy')
+
+try:
+    pxl_scale = np.load(P.METASHAPE_OUTPUT_DIR + 'pix_scale.npy')
+except:
+    pxl_scale=0.001
 
 cam_coords = np.load(P.METASHAPE_OUTPUT_DIR + 'cam_coords.npy')
 with open(P.METASHAPE_OUTPUT_DIR + 'cam_filenames.txt') as f:
@@ -40,9 +47,19 @@ def LoadTiles(paths, dims=3, dtype=np.uint8, read_flags=None):
 ORTHO_RS = 10
 ortho_full, full_shape, min_exts, max_exts = LoadTiles(ortho_paths)
 small_ortho = cv2.resize(ortho_full, (full_shape[1]//ORTHO_RS, full_shape[0]//ORTHO_RS))
+valid_ortho_pixels = np.array(np.where((small_ortho[:, :, 0] > 0) + (small_ortho[:, :, 1] > 0) + (small_ortho[:, :, 2] > 0)))[:, ::1]
+#valid_ortho_pixels = np.array(np.where((ortho_full[:, :, 0] > 0) + (ortho_full[:, :, 1] > 0) + (ortho_full[:, :, 2] > 0)))[:, ::1000]
 dem_full, shape, min_exts, max_exts = LoadTiles(dem_paths, dims=1, read_flags=cv2.IMREAD_ANYDEPTH, dtype=np.float32)
 small_dem_gray = cv2.resize(dem_full, (full_shape[1]//ORTHO_RS, full_shape[0]//ORTHO_RS))[:, :, None]
-DEM_MAX = 0.5
+valid_depths = -small_dem_gray[tuple(valid_ortho_pixels)][:, 0]
+#valid_depths = -dem_full[tuple(valid_ortho_pixels)][:, 0]
+valid_ortho_xy = (valid_ortho_pixels[::-1, :] * ORTHO_RS + np.array([[min_exts[1]], [min_exts[0]]])).astype(np.float32) * pxl_scale # * ORTHO_RS
+valid_ortho_points = np.stack([valid_ortho_xy[0], valid_ortho_xy[1], valid_depths], axis=0)
+valid_ortho_points = np.matmul(np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]), valid_ortho_points) + ortho_origin[:, None]
+if WRITE:
+    with open(P.VALID_ORTHO_POINTS_PATH, "wb") as f:
+        pickle.dump(valid_ortho_points, f)
+DEM_MAX = np.max(small_dem_gray)
 DEM_MIN = 0
 small_dem = cv2.cvtColor((255 * (small_dem_gray - DEM_MIN) / (DEM_MAX - DEM_MIN)).astype(np.uint8), cv2.COLOR_GRAY2BGR)
 
@@ -57,15 +74,29 @@ def mouse_event(event, x, y, flags, param):
         closest_center_dist = 10000
         for idx, poly in enumerate(ortho_polygons):
             poly_cent_wrld = np.average(np.array(poly), axis=0)
-            poly_cent_pixels = poly_cent_wrld[:2] / P.PIXEL_SCALE
+            poly_cent_pixels = poly_cent_wrld[:2] / pxl_scale
             poly_cent_pixels -= np.array([sub_idx_x+int(min_exts[1]), sub_idx_y+int(min_exts[0])])
             cent_dist = np.linalg.norm(np.array([x, y]) - poly_cent_pixels)
             if cent_dist < closest_center_dist:
                 closest_center_dist = cent_dist
                 closest_poly_idx = idx
-        if closest_poly_idx != -1 and closest_center_dist < 200:
+        if closest_poly_idx != -1 and closest_center_dist < 100:
             ortho_polygons.pop(closest_poly_idx)
             print("Deleted Annotation IDX: {}".format(closest_poly_idx))
+
+def DrawPolygons(ann_layer, small_ortho, polygons, col=(255, 255, 255)):
+    global min_exts, max_exts, sub_idx_x, sub_idx_y
+    for existing_ann_poly in polygons:
+        existing_ann_poly_pix = ((np.array(existing_ann_poly))[:, :2] / pxl_scale).astype(int) - np.array([min_exts[1], min_exts[0]]).astype(int)
+        existing_ann_sub_pix = existing_ann_poly_pix - np.array([sub_idx_x, sub_idx_y])
+        if len(existing_ann_poly):
+            pnts_sub = existing_ann_sub_pix.reshape((-1, 1, 2))
+            pnts_sml = existing_ann_poly_pix.reshape((-1, 1, 2))
+            try:
+                cv2.polylines(ann_layer, [pnts_sub], False, col, thickness=3)
+                cv2.polylines(small_ortho, [pnts_sml//10], False, col, thickness=1)
+            except:
+                print("err draw line")
 
 ortho_polygons_wrld = []
 try:
@@ -74,31 +105,34 @@ try:
 except:
     print("Can't open existing annotations file!")
 
+# chunk_quart = np.load(P.METASHAPE_OUTPUT_DIR + 'chunk_quart.npy')
+# chunk_scale = np.load(P.METASHAPE_OUTPUT_DIR + 'chunk_scale.npy')
 ortho_polygons = []
 for polygon in ortho_polygons_wrld:
+    #polygon_q = polygon * chunk_scale
+    #polygon_q = np.matmul(np.linalg.inv(chunk_quart), np.vstack([polygon_q.transpose(), np.ones((1, polygon_q.shape[0]))]))[:3, :].transpose()
     polygon_offset = np.matmul(np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]), np.array(polygon).transpose() - ortho_origin[:, None]).transpose()
-    #polygon_offset /= 0.002
-    #polygon_offset *= 0.0005
     ortho_polygons.append(polygon_offset)
 
 cv2.namedWindow("ortho_ann", cv2.WINDOW_GUI_NORMAL)
 cv2.namedWindow("Small Ortho", cv2.WINDOW_GUI_NORMAL)
 cv2.setMouseCallback("ortho_ann", mouse_event)
-OVERLAP_PIX = 500
-SUB_SHAPE = (2000, 3000)
-num_subs_x = math.ceil(full_shape[1] / (P.CNN_INPUT_SHAPE[1] - OVERLAP_PIX))
-num_subs_y = math.ceil(full_shape[0] / (P.CNN_INPUT_SHAPE[0] - OVERLAP_PIX))
+
+num_subs_x = math.ceil(full_shape[1] / (P.ORTHOSUB_SHAPE[1] - P.ORTHOSUB_OVERLAP_PIX))
+num_subs_y = math.ceil(full_shape[0] / (P.ORTHOSUB_SHAPE[0] - P.ORTHOSUB_OVERLAP_PIX))
 y_idx = 0
 x_idx = 0
 save_poly = False
 new_sub = False
+exclusion_mode = False
+exclusion_polygons = []
 while True:
-    sub_idx_x = int(x_idx*(SUB_SHAPE[1] - OVERLAP_PIX))
-    sub_idx_y = int(y_idx*(SUB_SHAPE[0] - OVERLAP_PIX))
-    ortho_sub_img = ortho_full[sub_idx_y:min(sub_idx_y+SUB_SHAPE[0], full_shape[0]),
-              sub_idx_x:min(sub_idx_x+SUB_SHAPE[1], full_shape[1]), :]
-    dem_sub_img = dem_full[sub_idx_y:min(sub_idx_y+SUB_SHAPE[0], full_shape[0]),
-                    sub_idx_x:min(sub_idx_x+SUB_SHAPE[1], full_shape[1]), :]
+    sub_idx_x = int(x_idx*(P.ORTHOSUB_SHAPE[1] - P.ORTHOSUB_OVERLAP_PIX))
+    sub_idx_y = int(y_idx*(P.ORTHOSUB_SHAPE[0] - P.ORTHOSUB_OVERLAP_PIX))
+    ortho_sub_img = ortho_full[sub_idx_y:min(sub_idx_y+P.ORTHOSUB_SHAPE[0], full_shape[0]),
+              sub_idx_x:min(sub_idx_x+P.ORTHOSUB_SHAPE[1], full_shape[1]), :]
+    dem_sub_img = dem_full[sub_idx_y:min(sub_idx_y+P.ORTHOSUB_SHAPE[0], full_shape[0]),
+                    sub_idx_x:min(sub_idx_x+P.ORTHOSUB_SHAPE[1], full_shape[1]), :]
 
     if ortho_sub_img.shape[0] == 0 or ortho_sub_img.shape[1] == 0 or np.max(ortho_sub_img) == 0:
         if y_idx == (num_subs_y-1):
@@ -110,22 +144,13 @@ while True:
             sml_ortho_ann = np.zeros_like(small_ortho)
             sml_idx_x = sub_idx_x // 10
             sml_idx_y = sub_idx_y // 10
-            sml_ortho_ann[sml_idx_y:min(sml_idx_y+SUB_SHAPE[0]//10, full_shape[0]//10), sml_idx_x:min(sml_idx_x+SUB_SHAPE[1]//10, full_shape[1]//10), :] = 20
-            for existing_ann_poly in ortho_polygons:
-                existing_ann_poly_pix = ((np.array(existing_ann_poly))[:, :2] / P.PIXEL_SCALE).astype(int) - np.array([min_exts[1], min_exts[0]]).astype(int)
-                existing_ann_sub_pix = existing_ann_poly_pix - np.array([sub_idx_x, sub_idx_y])
-                if len(existing_ann_poly):
-                    pnts_sub = existing_ann_sub_pix.reshape((-1, 1, 2))
-                    pnts_sml = existing_ann_poly_pix.reshape((-1, 1, 2))
-                    try:
-                        cv2.polylines(ann_layer, [pnts_sub], False, (255, 255, 255), thickness=3)
-                        cv2.polylines(sml_ortho_ann, [pnts_sml//10], False, (255, 255, 255), thickness=1)
-                    except:
-                        print("err draw line")
+            sml_ortho_ann[sml_idx_y:min(sml_idx_y+P.ORTHOSUB_SHAPE[0]//10, full_shape[0]//10), sml_idx_x:min(sml_idx_x+P.ORTHOSUB_SHAPE[1]//10, full_shape[1]//10), :] = 20
+            DrawPolygons(ann_layer, sml_ortho_ann, ortho_polygons)
+            DrawPolygons(ann_layer, sml_ortho_ann, exclusion_polygons, col=(0, 0, 255))
 
             if len(poly_vert_list):
                 pnts = np.array(poly_vert_list).reshape((-1, 1, 2))
-                cv2.polylines(ann_layer, [pnts], False, (0, 255, 0), thickness=3)
+                cv2.polylines(ann_layer, [pnts], False, (0, (not exclusion_mode)*255, exclusion_mode*255), thickness=3)
 
             sml_ortho_display = small_ortho.copy()
             sml_ortho_display[sml_ortho_ann == 20] += 20
@@ -148,6 +173,9 @@ while True:
             elif key == ord('c'):
                 # Show close camera frames
                 print("show cams not implemented")
+            elif key == ord('e'):
+                exclusion_mode = not exclusion_mode
+                print("Exclusion mode {}".format(exclusion_mode))
             if key == ord('b'):
                 x_idx += 1
                 new_sub = True
@@ -173,9 +201,12 @@ while True:
                 if len(poly_vert_list) > 1:
                     poly_vert_array = np.array(poly_vert_list)
                     elavations = -np.array(dem_sub_img[tuple(poly_vert_array[:, ::-1].transpose().tolist())])
-                    poly_verts_wrld_2D = (poly_vert_array + np.array([sub_idx_x+min_exts[1], sub_idx_y+min_exts[0]])) * P.PIXEL_SCALE
+                    poly_verts_wrld_2D = (poly_vert_array + np.array([sub_idx_x+min_exts[1], sub_idx_y+min_exts[0]])) * pxl_scale
                     poly_verts_ortho = np.hstack([poly_verts_wrld_2D, elavations])
-                    ortho_polygons.append(poly_verts_ortho.tolist())
+                    if not exclusion_mode:
+                        ortho_polygons.append(poly_verts_ortho.tolist())
+                    else:
+                        exclusion_polygons.append(poly_verts_ortho.tolist())
                 poly_vert_list = []
                 save_poly = False
             if new_sub:
@@ -191,6 +222,7 @@ while True:
         polygon_offset = (np.matmul(np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]), np.array(polygon).transpose()) + ortho_origin[:, None]).transpose()
         ortho_polygons_wrld.append(polygon_offset)
 
-    with open(P.POLY_ANN_LIST_PATH, "wb") as f:
-        pickle.dump(ortho_polygons_wrld, f)
+    if WRITE:
+        with open(P.POLY_ANN_LIST_PATH, "wb") as f:
+            pickle.dump(ortho_polygons_wrld, f)
     print("Number of Scallops: {}".format(len(ortho_polygons_wrld)))
