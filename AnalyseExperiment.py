@@ -22,14 +22,17 @@ def load_json_arr(json_path):
         print("Cannot find json file: {}".format(json_path))
     return lines
 
+print(len(output_sub_folders))
 fig, axs = plt.subplots(2, len(output_sub_folders), figsize=(30.0, 10.0), sharey='row', sharex='all')
-for ax in axs[0].flat:
+if axs.ndim == 1:
+    axs = axs[:, None]
+for ax in axs[0]:
     ax.set(xlabel="Iteration", ylabel="mAP [0.5:0.95]")
-for ax in axs[1].flat:
+for ax in axs[1]:
     ax.set(xlabel="Iteration", ylabel="Loss")
 
 row_titles = ["Training Loss Components", "Mean Training & Validation Losses"]
-
+MAX_ITT = 10000
 for idx, sub_folder in enumerate(output_sub_folders):
     experiment_metrics = load_json_arr(str(sub_folder) + '/metrics.json')
     #print(experiment_metrics)
@@ -41,11 +44,11 @@ for idx, sub_folder in enumerate(output_sub_folders):
     legend_l = []
     for loss_key in unique_loss_keys:
         legend_l.append(loss_key.split('/')[-1])
-        axs[0, idx].plot(
-            [x['iteration'] for x in experiment_metrics if loss_key in x],
-            [x[loss_key] for x in experiment_metrics if loss_key in x])
+        itts = np.array([x['iteration'] for x in experiment_metrics if loss_key in x])
+        itts = itts[itts < MAX_ITT]
+        axs[0, idx].plot(itts, [x[loss_key] for x in experiment_metrics if loss_key in x][:len(itts)])
     axs[0, idx].set_title(sub_folder.name)
-    axs[0, idx].legend(legend_l, loc='upper left')
+    axs[0, idx].legend(legend_l, loc='best')
     axs[0, idx].grid(True)
 
     # fig.canvas.draw()
@@ -54,24 +57,16 @@ for idx, sub_folder in enumerate(output_sub_folders):
     # cv2.imshow("plot", data)
     # cv2.waitKey()
 
-    axs[1, idx].plot(
-        [x['iteration'] for x in experiment_metrics if 'total_loss' in x],
-        [x['total_loss'] for x in experiment_metrics if 'total_loss' in x])
-    axs[1, idx].plot(
-        [x['iteration'] for x in experiment_metrics if 'total_loss' in x],
-        [x['loss_box_reg'] for x in experiment_metrics if 'loss_box_reg' in x])
-    axs[1, idx].plot(
-        [x['iteration'] for x in experiment_metrics if 'total_loss' in x],
-        [x['loss_cls'] for x in experiment_metrics if 'loss_cls' in x])
-    axs[1, idx].plot(
-        [x['iteration'] for x in experiment_metrics if 'total_loss' in x],
-        [x['loss_mask'] for x in experiment_metrics if 'loss_mask' in x])
-    axs[1, idx].plot(
-        [x['iteration'] for x in experiment_metrics if 'total_loss' in x],
-        [x['loss_rpn_cls'] for x in experiment_metrics if 'loss_rpn_cls' in x])
-    axs[1, idx].plot(
-        [x['iteration'] for x in experiment_metrics if 'total_loss' in x],
-        [x['loss_rpn_loc'] for x in experiment_metrics if 'loss_rpn_loc' in x])
+    itteration_n = np.array([x['iteration'] for x in experiment_metrics if 'total_loss' in x][:MAX_ITT])
+    itteration_n = itteration_n[itteration_n < MAX_ITT]
+    max_idx = len(itteration_n)
+
+    axs[1, idx].plot(itteration_n, [x['total_loss'] for x in experiment_metrics if 'total_loss' in x][:max_idx])
+    axs[1, idx].plot(itteration_n, [x['loss_box_reg'] for x in experiment_metrics if 'loss_box_reg' in x][:max_idx])
+    axs[1, idx].plot(itteration_n, [x['loss_cls'] for x in experiment_metrics if 'loss_cls' in x][:max_idx])
+    axs[1, idx].plot(itteration_n, [x['loss_mask'] for x in experiment_metrics if 'loss_mask' in x][:max_idx])
+    axs[1, idx].plot(itteration_n, [x['loss_rpn_cls'] for x in experiment_metrics if 'loss_rpn_cls' in x][:max_idx])
+    axs[1, idx].plot(itteration_n, [x['loss_rpn_loc'] for x in experiment_metrics if 'loss_rpn_loc' in x][:max_idx])
 
     axs[1, idx].set_title(sub_folder.name)
     if idx == 0:

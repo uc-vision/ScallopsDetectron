@@ -30,7 +30,7 @@ logger = logging.getLogger("detectron2")
 VALID_GRAD_SAMPLES = 10
 VALID_GRAD_CUTOFF = -0.2 # Per Eval period (10000)
 
-DISPLAY = False
+DISPLAY = True
 DELAY = 0
 if DISPLAY:
     cv2.namedWindow("Training Instance", cv2.WINDOW_NORMAL)

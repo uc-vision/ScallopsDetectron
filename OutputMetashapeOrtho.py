@@ -51,21 +51,23 @@ cam_height_sum = 0
 num_valid_cams = 0
 min_height = 10
 max_height = 0
-dense_pnts = chunk.dense_cloud.copy()
-dense_pnts.transform = chunk_Q
+dense_pnts = chunk.dense_cloud
 for cam_frame in cam_coords:
     if np.array_equal(cam_frame, np.eye(4)) or cam_frame[2, 2] > 0:
         continue
-    cam_origin = Metashape.Vector(cam_frame[:3, 3])
+    cam_frame_wrld = np.matmul(np.linalg.inv(chunk_Q), cam_frame)
+    cam_frame_wrld[:3, 3] /= chunk_scale
+
+    cam_origin = Metashape.Vector(cam_frame_wrld[:3, 3])
     cam_zray_pnt = cam_origin + Metashape.Vector(np.array([0, 0, -2]))
     pick_pnt = dense_pnts.pickPoint(cam_origin, cam_zray_pnt, endpoints=1)
     if pick_pnt is None:
         continue
-    dist = cam_origin - pick_pnt
+    dist = (cam_origin - pick_pnt) * chunk_scale
     z_dist = np.abs(dist[2])
     #print("X, Y, Z distance: {}, {}, {}".format(dist[0], dist[1], dist[2]))
-    if z_dist > 4 or z_dist < 0.1:
-        continue
+    # if z_dist > 4 or z_dist < 0.1:
+    #     continue
     min_height = min(min_height, z_dist)
     max_height = max(max_height, z_dist)
     cam_height_sum += z_dist
@@ -96,9 +98,8 @@ print("Rebuilding DEM and Ortho...")
 if WRITE_TILES and REBUILD_ORTHO:
     chunk.buildDem(region=region1, resolution=pix_scale)
     chunk.buildOrthomosaic(surface_data=Metashape.ElevationData, region=region1, resolution=pix_scale)
-
-doc.read_only = False
-doc.save()
+    doc.read_only = False
+    doc.save()
 
 if WRITE_TILES:
     chunk.exportRaster(DEM_DIR_PATH+"dem_"+".tif", source_data=Metashape.ElevationData, image_format=Metashape.ImageFormatTIFF,
@@ -108,19 +109,12 @@ if WRITE_TILES:
                        format=Metashape.RasterFormatTiles, split_in_blocks=True, block_height=P.TILE_SIZE, block_width=P.TILE_SIZE, resolution=pix_scale,
                        white_background=False, region=region1)
 
-    # Ensure ortho and DEM files line up
-    ortho_paths = [(str(path), path.name) for path in p.Path(P.METASHAPE_OUTPUT_DIR + 'ortho/').iterdir()]
-    dem_paths = [(str(path), path.name) for path in p.Path(P.METASHAPE_OUTPUT_DIR + 'dem/').iterdir()]
-    dem_paths.sort()
-    ortho_paths.sort()
-    for idx, (ortho_path, ortho_fn) in enumerate(ortho_paths):
-        if ortho_fn[6:] != dem_paths[idx][1][4:]:
-            print("Found ortho dem tile mismatch! fn: {}".format(dem_paths[idx][1]))
-            p.Path(dem_paths[idx][0]).unlink()
-            dem_paths.pop(idx)
-    while len(dem_paths) > len(ortho_paths):
-        p.Path(dem_paths[-1][0]).unlink()
-        dem_paths.pop()
+    # Delete non-intersecting DEM and Ortho tiles
+    ortho_paths = [(path.name[:-4].split('_')[-1], str(path)) for path in p.Path(P.METASHAPE_OUTPUT_DIR + 'ortho/').iterdir()]
+    dem_paths = [(path.name[:-4].split('_')[-1], str(path)) for path in p.Path(P.METASHAPE_OUTPUT_DIR + 'dem/').iterdir()]
+    valid_inds = set(t[0] for t in ortho_paths).intersection(set(t[0] for t in dem_paths))
+    [p.Path(path_t[1]).unlink() for path_t in ortho_paths if path_t[0] not in valid_inds]
+    [p.Path(path_t[1]).unlink() for path_t in dem_paths if path_t[0] not in valid_inds]
 
 with open(P.METASHAPE_OUTPUT_DIR + 'cam_filenames.txt', 'w') as f:
     f.write('\n'.join(cam_filenames))

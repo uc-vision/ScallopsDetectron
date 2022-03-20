@@ -10,14 +10,17 @@ import pickle
 import os
 
 DISPLAY = False
+GRAY = True
+
+DATASET_DIRECTORY = P.DATASET_DIR[:-1] + "_ortho" + '_bw/' if GRAY else '/'
 
 try:
-    os.mkdir(P.DATASET_DIR)
+    os.mkdir(DATASET_DIRECTORY)
 except OSError as error:
     print(error)
 
 if not DISPLAY:
-    [path.unlink() for path in p.Path(P.DATASET_DIR).iterdir()]
+    [path.unlink() for path in p.Path(DATASET_DIRECTORY).iterdir()]
 with open(P.POLY_ANN_LIST_PATH, "rb") as f:
     ann_polys_wrld = pickle.load(f)
 
@@ -26,7 +29,7 @@ ortho_paths.sort()
 tile_offsets = np.array([[float(path.split('-')[-2]), -float(path.split('-')[-1][:-4])] for path in ortho_paths])
 tile_offsets *= P.TILE_SIZE
 ortho_origin = np.load(P.METASHAPE_OUTPUT_DIR + 'ortho_origin.npy')
-pxl_scale = P.PIXEL_SCALE #np.load(P.METASHAPE_OUTPUT_DIR + 'pix_scale.npy')
+pxl_scale = np.load(P.METASHAPE_OUTPUT_DIR + 'pix_scale.npy')
 
 def UpsamplePoly(polygon, num=10):
     poly_ext = np.append(polygon, [polygon[0, :]], axis=0)
@@ -80,9 +83,7 @@ for row_idx in tqdm(range(num_subs_y)):
                         sub_idx_x:min(sub_idx_x+P.ORTHOSUB_SHAPE[1], full_shape[1]), :]
         if (ortho_sub_img == 0).all():
             continue
-        img_fn = "ortho_" + str(row_idx) + "_" + str(col_idx) + ".png" #P.DATASET_DIR +
-        if not DISPLAY:
-            cv2.imwrite(P.DATASET_DIR + img_fn, ortho_sub_img)
+        img_fn = "ortho_" + str(row_idx) + "_" + str(col_idx) + ".jpg" #P.DATASET_DIR +
         data_pix_u_sum += np.mean(ortho_sub_img, axis=(0, 1))
         record = {}
         height, width, _ = ortho_sub_img.shape
@@ -118,6 +119,11 @@ for row_idx in tqdm(range(num_subs_y)):
         record["annotations"] = objs
         label_dict.append(record)
 
+        if not DISPLAY:
+            if GRAY:
+                ortho_sub_img = cv2.cvtColor(ortho_sub_img, cv2.COLOR_BGR2GRAY)
+            cv2.imwrite(DATASET_DIRECTORY + img_fn, ortho_sub_img)
+
         if DISPLAY and len(display_polygon_l):
             drawing = ortho_sub_img.copy()
             for polygon in display_polygon_l:
@@ -135,5 +141,5 @@ for row_idx in tqdm(range(num_subs_y)):
 print("Data pixel means BGR: {}".format(data_pix_u_sum / (img_id + 1)))
 
 if not DISPLAY:
-    with open(P.DATASET_DIR + "labels.json", 'w') as fp:
+    with open(DATASET_DIRECTORY + "labels.json", 'w') as fp:
         json.dump(label_dict, fp)

@@ -12,16 +12,19 @@ import os
 
 MASK_ORTHO_VALID = True
 DISPLAY = False
+GRAY = True
 DISP_DS = 1
 UD_ALPHA = 1
 
+DATASET_DIRECTORY = P.DATASET_DIR[:-1] + "_prop" + '_bw/' if GRAY else '/'
+
 try:
-    os.mkdir(P.DATASET_DIR)
+    os.mkdir(DATASET_DIRECTORY)
 except OSError as error:
     print(error)
 
 if not DISPLAY:
-    [path.unlink() for path in p.Path(P.DATASET_DIR).iterdir()]
+    [path.unlink() for path in p.Path(DATASET_DIRECTORY).iterdir()]
 with open(P.POLY_ANN_LIST_PATH, "rb") as f:
     ann_polys = pickle.load(f)
 with open(P.VALID_ORTHO_POINTS_PATH, "rb") as f:
@@ -54,7 +57,6 @@ img_sample = cv2.imread(cam_filenames[0])
 print(cam_filenames[0])
 h, w, c = img_sample.shape
 print(img_sample.shape)
-#h,  w = (2160, 3840)
 newcameramtx, roi = cv2.getOptimalNewCameraMatrix(camMtx, camDist, (w,h), UD_ALPHA, (w,h))
 print("Cam undistortion ROI: {}".format(roi))
 x_ud, y_ud, w_ud, h_ud = roi
@@ -89,9 +91,15 @@ ann_pos_array = np.array(polygons_avgpos_wrld)
 ann_pos_array = ann_pos_array[np.where(np.abs(ann_pos_array[:, 2]) < 100)]
 ann_polys = new_ann_polys
 
-ax.scatter3D(ann_pos_array[:, 0], ann_pos_array[:, 1], ann_pos_array[:, 2], color="r")
-#ax.scatter3D(valid_ortho_centers[0][::10000], valid_ortho_centers[1][::10000], valid_ortho_centers[2][::10000], color="m")
-plt.show()
+if DISPLAY:
+    ax.scatter3D(ann_pos_array[:, 0], ann_pos_array[:, 1], ann_pos_array[:, 2], color="r")
+    DS = 1000
+    ax.scatter3D(valid_ortho_centers[0][::DS], valid_ortho_centers[1][::DS], valid_ortho_centers[2][::DS], color="m")
+    plt.show()
+
+    cv2.namedWindow("image original", cv2.WINDOW_GUI_NORMAL)
+    cv2.namedWindow("image UD", cv2.WINDOW_GUI_NORMAL)
+    cv2.namedWindow("Contours", cv2.WINDOW_GUI_NORMAL)
 
 img_id = 0
 for idx, (cam_frame, cam_img_path) in tqdm(enumerate(list(zip(cam_coords, cam_filenames)))):
@@ -122,7 +130,9 @@ for idx, (cam_frame, cam_img_path) in tqdm(enumerate(list(zip(cam_coords, cam_fi
             img_cam_und_roi *= valid_in_ortho_mask
 
         if not DISPLAY:
-            cv2.imwrite(P.DATASET_DIR + img_fn, img_cam_und_roi)
+            if GRAY:
+                img_cam_und_roi = cv2.cvtColor(img_cam_und_roi, cv2.COLOR_BGR2GRAY)
+            cv2.imwrite(DATASET_DIRECTORY + img_fn, img_cam_und_roi)
         record = {}
         height, width = img_shape[:2]
         record["file_name"] = img_fn
@@ -179,5 +189,5 @@ for idx, (cam_frame, cam_img_path) in tqdm(enumerate(list(zip(cam_coords, cam_fi
                 exit(0)
 
 if not DISPLAY:
-    with open(P.DATASET_DIR + "labels.json", 'w') as fp:
+    with open(DATASET_DIRECTORY + "labels.json", 'w') as fp:
         json.dump(label_dict, fp)

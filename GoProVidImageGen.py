@@ -6,14 +6,14 @@ import numpy as np
 import struct
 import matplotlib.pyplot as plt
 
-GOPRO_VIDEO_FOLDER = '/home/cosc/research/CVlab/General ROV Footage/Scallops/118'#'/home/cosc/research/CVlab/General ROV Footage/Marlborough Sounds - Mussel Farm/GOPRO'#
-VID_IDENTIFIER = 'dive_1'
-IMAGE_WRITE_DIR = '/local/ScallopReconstructions/gopro_115/left/'
+GOPRO_VIDEO_FOLDER = '/home/cosc/research/CVlab/General ROV Footage/Scallops/115'#'/home/cosc/research/CVlab/General ROV Footage/Marlborough Sounds - Mussel Farm/GOPRO'#
+VID_IDENTIFIER = ''
+IMAGE_WRITE_DIR = '/local/ScallopReconstructions/gopro_115_colcal/'
 SAVE_IMGS = True
-START_FRAME = 400
-END_FRAME = 2000
-EXTRACT_DATA = True
-EXTRACT_FPS = 10
+START_FRAME = 0
+END_FRAME = 100000
+EXTRACT_DATA = False
+EXTRACT_FPS = 3
 CROP_MUL = 0.75
 FRAME_SHAPE = (2160, 3840, 3)
 
@@ -75,37 +75,75 @@ if EXTRACT_DATA:
 frame_cnt = 0
 cv2.namedWindow("Frames", cv2.WINDOW_NORMAL)
 cv2.namedWindow("Cropped", cv2.WINDOW_NORMAL)
-for vid_path in P.Path(GOPRO_VIDEO_FOLDER).iterdir():
-    command = [ "ffmpeg",
-                '-i', vid_path,
-                '-f', 'image2pipe',
-                '-pix_fmt', 'rgb24',
-                '-r', str(EXTRACT_FPS),
-                '-vcodec', 'rawvideo', '-']
+vid_paths = list(P.Path(GOPRO_VIDEO_FOLDER).iterdir())
+vid_paths.sort()
+vid_idx = 0
+for vid_path in [vid_paths[vid_idx]]:
+    command = ["ffmpeg",
+               '-ss', '00:00:40',
+               '-i', vid_path,
+               '-t', '00:08:50',
+               '-f', 'image2pipe',
+               '-pix_fmt', 'rgb24',
+               '-r', str(EXTRACT_FPS),
+               '-vcodec', 'rawvideo', '-']
     pipe = sp.Popen(command, stdout=sp.PIPE, bufsize=10**8)
 
-    while pipe.stdout.readable():
+    while pipe.stdout.readable() and frame_cnt < END_FRAME:
         raw_image = pipe.stdout.read(FRAME_SHAPE[0]*FRAME_SHAPE[1]*FRAME_SHAPE[2])
         image = np.fromstring(raw_image, dtype='uint8')
-        frame = image.reshape((FRAME_SHAPE[0], FRAME_SHAPE[1], FRAME_SHAPE[2]))[:, :, ::-1]
-        pipe.stdout.flush()
-        frame_cnt += 1
-        print("Frame cnt: {}    ".format(frame_cnt), end='\r')
-        cv2.imshow('Frames', frame)
 
-        if SAVE_IMGS and frame_cnt > START_FRAME and frame_cnt <= END_FRAME:
-            center = np.array(frame.shape) / 2
-            h, w, _ = (np.array(frame.shape) * CROP_MUL).astype(np.int)
-            x = int(center[1] - w/2)
-            y = int(center[0] - h/2)
-            frame_cropped = frame[y:y+h, x:x+w]
-            cv2.imshow("Cropped", frame_cropped)
-            cv2.imwrite(IMAGE_WRITE_DIR+VID_IDENTIFIER+'_'+str(frame_cnt)+".png", frame_cropped)
+        # if image.size == 0:
+        #     print("zero img!")
+        #     continue
+        try:
+            frame = image.reshape((FRAME_SHAPE[0], FRAME_SHAPE[1], FRAME_SHAPE[2]))[:, :, ::-1]
+            frame_cnt += 1
+            print("Vid: {}, Frame cnt: {}    ".format(vid_idx, frame_cnt), end='\r')
+            cv2.imshow('Frames', frame)
+
+            if SAVE_IMGS and frame_cnt > START_FRAME and frame_cnt <= END_FRAME:
+                center = np.array(frame.shape) / 2
+                h, w, _ = (np.array(frame.shape) * CROP_MUL).astype(np.int)
+                x = int(center[1] - w/2)
+                y = int(center[0] - h/2)
+                frame_cropped = frame[y:y+h, x:x+w]
+                cv2.imshow("Cropped", frame_cropped)
+
+                blue = cv2.cvtColor(frame_cropped[:, :, 0], cv2.COLOR_GRAY2BGR)
+                green = cv2.cvtColor(frame_cropped[:, :, 1], cv2.COLOR_GRAY2BGR)
+                red = cv2.cvtColor(frame_cropped[:, :, 2], cv2.COLOR_GRAY2BGR)
+
+                cv2.imwrite(IMAGE_WRITE_DIR+'comp_imgs_c/'+VID_IDENTIFIER+str(frame_cnt)+".png", frame_cropped)
+
+                STD_PRES = 10
+
+                blue_mean = np.mean(blue.astype(np.float32))
+                blue_std = np.std(blue.astype(np.float32))
+                blue_normalised = (255 * np.clip(0.5 * (blue.astype(np.float32) - blue_mean) / (STD_PRES * blue_std) + 0.5, 0.0, 1.0)).astype(np.uint8)
+
+                green_mean = np.mean(green.astype(np.float32))
+                green_std = np.std(green.astype(np.float32))
+                green_normalised = (255 * np.clip(0.5 * (green.astype(np.float32) - green_mean) / (STD_PRES * green_std) + 0.5, 0.0, 1.0)).astype(np.uint8)
+
+                red_mean = np.mean(red.astype(np.float32))
+                red_std = np.std(red.astype(np.float32))
+                red_normalised = (255 * np.clip(0.5 * (red.astype(np.float32) - red_mean) / (STD_PRES * red_std) + 0.5, 0.0, 1.0)).astype(np.uint8)
+
+                cv2.imwrite(IMAGE_WRITE_DIR+'in_imgs_b/'+VID_IDENTIFIER+str(frame_cnt)+".png", blue_normalised)
+                cv2.imwrite(IMAGE_WRITE_DIR+'in_imgs_g/'+VID_IDENTIFIER+str(frame_cnt)+".png", green_normalised)
+                cv2.imwrite(IMAGE_WRITE_DIR+'in_imgs_r/'+VID_IDENTIFIER+str(frame_cnt)+".png", red_normalised)
+        except:
+            "Frame failed!"
+
+        pipe.stdout.flush()
 
         key = cv2.waitKey(1)
         if key == ord('q'):
             exit(0)
         elif key == ord(' '):
             break
+
+    vid_idx += 1
 
 cv2.destroyAllWindows()
