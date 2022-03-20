@@ -4,20 +4,14 @@ import os
 from collections import OrderedDict
 import torch
 import weakref
-import json
-from detectron2.data import DatasetCatalog
 from typing import Optional
 from detectron2.checkpoint import DetectionCheckpointer
-from detectron2.config import get_cfg
-from detectron2.data import MetadataCatalog
-from detectron2.engine import TrainerBase, DefaultTrainer, SimpleTrainer, AMPTrainer, hooks
+from detectron2.engine import TrainerBase, SimpleTrainer, AMPTrainer, hooks
 from detectron2.data import build_detection_train_loader, build_detection_test_loader
 from torch.nn.parallel import DistributedDataParallel
-from detectron2.data import DatasetMapper
 from detectron2.evaluation import (
     DatasetEvaluators,
     inference_on_dataset,
-    print_csv_format,
     DatasetEvaluator,
     verify_results,
 )
@@ -29,8 +23,6 @@ from detectron2.utils.events import CommonMetricPrinter, JSONWriter, Tensorboard
 from detectron2.utils.file_io import PathManager
 from detectron2.utils.logger import setup_logger
 import eval_net
-import copy
-from detectron2.data import detection_utils as utils
 import augmentations as A
 
 

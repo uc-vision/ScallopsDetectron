@@ -1,19 +1,15 @@
 import numpy as np
 import cv2
-import math
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import Params as P
 from detectron2.engine import DefaultPredictor
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import MetadataCatalog
-from detectron2.modeling import build_model
 import pathlib, os
 from detectron2.config import get_cfg
-import VTKPointCloud as PC
-import scallop_poly_functions as spf
+from utils import VTKPointCloud as PC, scallop_poly_functions as spf
 import vtk
-from vtk.util.numpy_support import numpy_to_vtk
 import Metashape
 import time
 

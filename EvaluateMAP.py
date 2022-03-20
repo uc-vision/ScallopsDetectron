@@ -4,20 +4,13 @@ from detectron2.data import build_detection_test_loader
 from detectron2.modeling import build_model
 from detectron2.checkpoint import DetectionCheckpointer
 import torch
-import cv2
 import os
 import pathlib
-import numpy as np
 import json
-import re
 from tqdm import tqdm
-import eval_net
-from detectron2.config import configurable
-from typing import List, Optional, Union
-from detectron2.data import transforms as T
-import logging
 import warnings
-import augmentations as A
+from utils import augmentations as A, eval_net
+
 warnings.filterwarnings("ignore")
 
 # img = cv2.imread("../../Pictures/labelledscallopscropped.png")

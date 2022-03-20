@@ -24,6 +24,7 @@ MAX_PHOTOS_PER_CHUNK = 1000
 #                        P.METASHAPE_OUTPUT_BASE + 'gopro_124/',
 #                        P.METASHAPE_OUTPUT_BASE + 'gopro_125/']
 
+METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/'
 RECONSTRUCTION_DIRS = [P.METASHAPE_OUTPUT_BASE + 'gopro_115_colcal/']
 
 for RECON_DIR in RECONSTRUCTION_DIRS:

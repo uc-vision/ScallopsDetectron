@@ -8,6 +8,9 @@ import math
 REBUILD_ORTHO = True
 WRITE_TILES = True
 
+TILE_SIZE = 5000
+
+METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/'
 ORTHO_DIR_PATH = P.METASHAPE_OUTPUT_DIR + 'ortho/'
 try:
     os.mkdir(ORTHO_DIR_PATH)
