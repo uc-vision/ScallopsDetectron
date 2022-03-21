@@ -48,7 +48,7 @@ for idx, sub_folder in enumerate(output_sub_folders):
         itts = itts[itts < MAX_ITT]
         axs[0, idx].plot(itts, [x[loss_key] for x in experiment_metrics if loss_key in x][:len(itts)])
     axs[0, idx].set_title(sub_folder.name)
-    axs[0, idx].legend(legend_l, loc='best')
+    axs[0, idx].legend(legend_l, loc='best', prop={'size': 6})
     axs[0, idx].grid(True)
 
     # fig.canvas.draw()

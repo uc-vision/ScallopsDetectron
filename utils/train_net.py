@@ -22,8 +22,7 @@ from detectron2.utils import comm
 from detectron2.utils.events import CommonMetricPrinter, JSONWriter, TensorboardXWriter
 from detectron2.utils.file_io import PathManager
 from detectron2.utils.logger import setup_logger
-import eval_net
-import augmentations as A
+from utils import eval_net, augmentations
 
 
 def create_ddp_model(model, *, fp16_compression=False, **kwargs):
@@ -224,7 +223,7 @@ class Trainer(TrainerBase):
         It now calls :func:`detectron2.data.build_detection_train_loader`.
         Overwrite it if you'd like a different data loader.
         """
-        mapper = A.CustomMapper(cfg, is_train=True, augmentations=augs)
+        mapper = augmentations.CustomMapper(cfg, is_train=True, augmentations=augs)
         return build_detection_train_loader(cfg, mapper=mapper)
 
     @classmethod
