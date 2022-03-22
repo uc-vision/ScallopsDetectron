@@ -14,9 +14,9 @@ WRITE = True
 RESUME = False
 SHOW_TRAINING_IMGS = False
 
-BASE_DIR = '/local/'#'/scratch/data/tkr25/'  #
-NUM_GPUS = 1 #4
-BATCH_SIZE = 1 #8
+BASE_DIR = '/scratch/data/tkr25/' #'/local/'#'/scratch/data/tkr25/'  #
+NUM_GPUS = 4
+BATCH_SIZE = 8
 
 CNN_INPUT_SHAPE = (800, 1333)
 
@@ -30,35 +30,19 @@ augs = [transforms.RandomBrightness(0.8, 1.2),
         transforms.RandomFlip(prob=0.5, horizontal=False, vertical=True),
         #transforms.ResizeScale(min_scale=1, max_scale=4.0, target_height=CNN_INPUT_SHAPE[0], target_width=CNN_INPUT_SHAPE[1]),
         transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),
-        A.RandomErasing(),
-        A.RandomColourNoise(),
+        #A.RandomErasing(),
+        #A.RandomColourNoise(),
         ]
-augs_bw = [transforms.RandomBrightness(0.8, 1.2),
-          transforms.RandomContrast(0.8, 1.2),
-          transforms.RandomSaturation(0.8, 1.2),
-          transforms.RandomLighting(2),
-          transforms.RandomRotation([-90, 0, 90, 180], sample_style="choice"),
-          transforms.RandomFlip(prob=0.5, horizontal=True, vertical=False),
-          transforms.RandomFlip(prob=0.5, horizontal=False, vertical=True),
-          transforms.ResizeScale(min_scale=1, max_scale=4.0, target_height=CNN_INPUT_SHAPE[0], target_width=CNN_INPUT_SHAPE[1]),
-          transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),
-          A.RandomErasing(),
-          ]
 no_augs = [transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),]
 
 
 EXP_START_IDX = 0
-experiment_titles = ["HR PROP BW AUGS",
-                     "HR PROP BW NOAUGS",
-                     "HR ORTHO BW AUGS",
-                     "HR PROP+ORTHO BW AUGS",
+experiment_titles = ["HR+LR PROP MOREDATA AUGS",
                      ]
-augmentation_sets = [augs_bw, no_augs, augs_bw, augs_bw]
-valid_datasets = ['gopro_116_0_ortho_bw', 'gopro_116_0_prop_bw', 'lowres_scan_210113_064700_prop', 'gopro_116_0_ortho', 'gopro_116_0_prop']
-train_valid_dataset_sets = [[['gopro_115_prop_bw'], valid_datasets],
-                            [['gopro_115_prop_bw'], valid_datasets],
-                            [['gopro_115_ortho_bw'], valid_datasets],
-                            [['gopro_115_prop_bw', 'gopro_115_ortho_bw'], valid_datasets],
+augmentation_sets = [augs,
+                     ]
+valid_datasets = ['lowres_scan_210113_064700_prop', 'gopro_116_0_ortho', 'gopro_116_0_prop']
+train_valid_dataset_sets = [[['gopro_115_prop', 'gopro_119_prop', 'lowres_scan_210113_065012_prop'], valid_datasets],
                             ]
 train_valid_dataset_sets = [[[BASE_DIR+'ScallopMaskDataset/'+sssd for sssd in ssd] for ssd in sd] for sd in train_valid_dataset_sets]
 

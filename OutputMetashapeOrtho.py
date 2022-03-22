@@ -1,7 +1,6 @@
 import Metashape
 import numpy as np
 import pathlib as p
-import Params as P
 import os
 import math
 
@@ -11,12 +10,13 @@ WRITE_TILES = True
 TILE_SIZE = 5000
 
 METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/'
-ORTHO_DIR_PATH = P.METASHAPE_OUTPUT_DIR + 'ortho/'
+METASHAPE_OUTPUT_DIR = METASHAPE_OUTPUT_BASE + 'gopro_115_colcal/'
+ORTHO_DIR_PATH = METASHAPE_OUTPUT_DIR + 'ortho/'
 try:
     os.mkdir(ORTHO_DIR_PATH)
 except OSError as error:
     print(error)
-DEM_DIR_PATH = P.METASHAPE_OUTPUT_DIR + 'dem/'
+DEM_DIR_PATH = METASHAPE_OUTPUT_DIR + 'dem/'
 try:
     os.mkdir(DEM_DIR_PATH)
 except OSError as error:
@@ -113,31 +113,31 @@ if WRITE_TILES:
                        white_background=False, region=region1)
 
     # Delete non-intersecting DEM and Ortho tiles
-    ortho_paths = [(path.name[:-4].split('_')[-1], str(path)) for path in p.Path(P.METASHAPE_OUTPUT_DIR + 'ortho/').iterdir()]
-    dem_paths = [(path.name[:-4].split('_')[-1], str(path)) for path in p.Path(P.METASHAPE_OUTPUT_DIR + 'dem/').iterdir()]
+    ortho_paths = [(path.name[:-4].split('_')[-1], str(path)) for path in p.Path(METASHAPE_OUTPUT_DIR + 'ortho/').iterdir()]
+    dem_paths = [(path.name[:-4].split('_')[-1], str(path)) for path in p.Path(METASHAPE_OUTPUT_DIR + 'dem/').iterdir()]
     valid_inds = set(t[0] for t in ortho_paths).intersection(set(t[0] for t in dem_paths))
     [p.Path(path_t[1]).unlink() for path_t in ortho_paths if path_t[0] not in valid_inds]
     [p.Path(path_t[1]).unlink() for path_t in dem_paths if path_t[0] not in valid_inds]
 
-with open(P.METASHAPE_OUTPUT_DIR + 'cam_filenames.txt', 'w') as f:
-    f.write('\n'.join(cam_filenames))
-f.close()
-
-np.save(P.METASHAPE_OUTPUT_DIR + 'pix_scale.npy', pix_scale)
-
-np.save(P.METASHAPE_OUTPUT_DIR + 'cam_coords.npy', cam_coords)
-ortho_origin = np.array([region1.min[0], region1.max[1], 0])
-np.save(P.METASHAPE_OUTPUT_DIR + 'ortho_origin.npy', ortho_origin)
-
-np.save(P.METASHAPE_OUTPUT_DIR + 'chunk_quart.npy', chunk_Q)
-np.save(P.METASHAPE_OUTPUT_DIR + 'chunk_scale.npy', chunk_scale)
-
-# np.save("/local/ScallopMaskDataset/output/cam_fov.npy", cam_fov)
-K = np.array([
-    [c.f + c.b1,    c.b2,   c.cx + c.width / 2],
-    [0,             c.f,    c.cy + c.height / 2],
-    [0,             0,      1]
-])
-dist = np.array([[c.k1, c.k2, c.p2, c.p1, c.k3]])
-np.save(P.METASHAPE_OUTPUT_DIR + 'camMtx.npy', K)
-np.save(P.METASHAPE_OUTPUT_DIR + 'camDist.npy', dist) # k1 k2 p1 p2
+# with open(METASHAPE_OUTPUT_DIR + 'cam_filenames.txt', 'w') as f:
+#     f.write('\n'.join(cam_filenames))
+# f.close()
+#
+# np.save(METASHAPE_OUTPUT_DIR + 'pix_scale.npy', pix_scale)
+#
+# np.save(METASHAPE_OUTPUT_DIR + 'cam_coords.npy', cam_coords)
+# ortho_origin = np.array([region1.min[0], region1.max[1], 0])
+# np.save(METASHAPE_OUTPUT_DIR + 'ortho_origin.npy', ortho_origin)
+#
+# np.save(METASHAPE_OUTPUT_DIR + 'chunk_quart.npy', chunk_Q)
+# np.save(METASHAPE_OUTPUT_DIR + 'chunk_scale.npy', chunk_scale)
+#
+# # np.save("/local/ScallopMaskDataset/output/cam_fov.npy", cam_fov)
+# K = np.array([
+#     [c.f + c.b1,    c.b2,   c.cx + c.width / 2],
+#     [0,             c.f,    c.cy + c.height / 2],
+#     [0,             0,      1]
+# ])
+# dist = np.array([[c.k1, c.k2, c.p2, c.p1, c.k3]])
+# np.save(METASHAPE_OUTPUT_DIR + 'camMtx.npy', K)
+# np.save(METASHAPE_OUTPUT_DIR + 'camDist.npy', dist) # k1 k2 p1 p2

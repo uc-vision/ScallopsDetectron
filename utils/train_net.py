@@ -234,7 +234,7 @@ class Trainer(TrainerBase):
         It now calls :func:`detectron2.data.build_detection_test_loader`.
         Overwrite it if you'd like a different data loader.
         """
-        mapper = A.CustomMapper(cfg, is_train=True)
+        mapper = augmentations.CustomMapper(cfg, is_train=True)
         return build_detection_test_loader(cfg, dataset_name, mapper=mapper)
 
     @classmethod

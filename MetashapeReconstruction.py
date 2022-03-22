@@ -4,7 +4,6 @@ import pathlib as p
 import os
 import pickle
 from matplotlib import pyplot as plt
-import Params as P
 import cv2
 import pathlib
 from tqdm import tqdm
@@ -25,7 +24,7 @@ MAX_PHOTOS_PER_CHUNK = 1000
 #                        P.METASHAPE_OUTPUT_BASE + 'gopro_125/']
 
 METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/'
-RECONSTRUCTION_DIRS = [P.METASHAPE_OUTPUT_BASE + 'gopro_115_colcal/']
+RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_115_colcal/']
 
 for RECON_DIR in RECONSTRUCTION_DIRS:
     if ROV_DATA:

@@ -2,7 +2,6 @@ import numpy as np
 import cv2
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-import Params as P
 from detectron2.engine import DefaultPredictor
 from detectron2.utils.visualizer import Visualizer
 from detectron2.data import MetadataCatalog
@@ -18,6 +17,7 @@ SHOW = True
 VTK = False
 EDGE_LIMIT_PIX = 200
 OUTLIER_RADIUS = 0.1
+WAITKEY = 0
 
 def CamToWrld(pnts_cam, cam_quart):
     return np.matmul(cam_quart, np.vstack([pnts_cam, np.ones((1, pnts_cam.shape[1]))]))[:3, :]
@@ -164,7 +164,7 @@ for cam in tqdm(cameras[3::1]):
         cv2.imshow("Labelled sub image", out_image)
         depth_display = 255*(img_depth_np - np.min(img_depth_np)) / np.max(img_depth_np)
         cv2.imshow("Depth", depth_display.astype(np.uint8))
-        key = cv2.waitKey(1)
+        key = cv2.waitKey(WAITKEY)
         if key == ord('q'):
             exit(0)
 
@@ -200,7 +200,7 @@ plt.xlabel("x [m]")
 plt.ylabel("y [m]")
 plt.plot(scallop_pnts_wrld[:, 0], scallop_pnts_wrld[:, 1], 'ro')
 plt.grid(True)
-plt.savefig(P.INFERENCE_OUTPUT_DIR + "ScallopSpatialDistImg.jpeg")
+#plt.savefig(P.INFERENCE_OUTPUT_DIR + "ScallopSpatialDistImg.jpeg")
 plt.figure(2)
 plt.title("Scallop Size Distribution (freq. vs size [m])")
 plt.ylabel("Frequency")
@@ -208,7 +208,7 @@ plt.xlabel("Scallop Width [m]")
 plt.hist(scallop_sizes, bins=100)
 plt.figtext(0.15, 0.85, "Total count: {}".format(extr.GetNumberOfExtractedClusters()))
 plt.grid(True)
-plt.savefig(P.INFERENCE_OUTPUT_DIR + "ScallopSizeDistImg.jpeg")
+#plt.savefig(P.INFERENCE_OUTPUT_DIR + "ScallopSizeDistImg.jpeg")
 plt.show()
 
 #print(extr.GetOutput())

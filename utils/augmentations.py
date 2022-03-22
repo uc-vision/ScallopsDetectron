@@ -70,18 +70,21 @@ class GeometricTransform(transforms.Transform):
     #
     #     return transforms.Transform()
     def __init__(self):
+        super().__init__()
         self.Q = np.eye(4)
-        self.Q[:3, 3] = (np.random.random(size=(3,)) - 0.5) * 100
+
+    def __call__(self):
+        print("asdfg")
+
+    def apply_image(self, img):
+        print("img")
+        # Randomise transform
+        self.Q[:3, 3] = np.random.normal(scale=200, size=(3,))
         # self.Q[:3, :3] += (np.random.random(size=(3, 3)) - 0.5) / 2
         # self.Q[:3, 2] = np.cross(self.Q[:3, 0], self.Q[:3, 1])
         # self.Q[:3, 1] = np.cross(self.Q[:3, 2], self.Q[:3, 0])
         # self.Q[:3, :3] /= np.linalg.norm(self.Q[:3, :3], axis=0)
 
-    def apply_segmentation(self, seg):
-        print(seg)
-        return seg
-
-    def apply_image(self, img):
         img_shape = img.shape
         img_points = np.vstack([np.indices(img_shape[:2])[::-1], np.zeros(img_shape[:2])[None], np.ones(img_shape[:2])[None]]).reshape((4, -1))
         img_pnts_T = np.matmul(np.linalg.inv(self.Q), img_points).astype(np.int32)
@@ -90,9 +93,28 @@ class GeometricTransform(transforms.Transform):
         cols = pixel_coords[1].clip(0, img_shape[1]-1)
         return img[(rows, cols)].reshape(img_shape)
 
+    def apply_box(self, bbox):
+        print('bbox')
+        return bbox
+
+    def apply_polygons(self, polygons):
+        print('polys')
+        return polygons
+
+    def apply_segmentation(self, segmentation):
+        print('seg')
+        return segmentation
+
     def apply_coords(self, coords):
+        print(coords.shape)
+        print(np.mean(coords, axis=0))
         points_2N = coords.transpose()
         points_4N = np.concatenate([points_2N, np.zeros_like(points_2N)], axis=0)
         points_4N[3, :] = 1
         points_T = np.matmul(self.Q, points_4N).astype(np.int32)
         return points_T[:2, :].transpose()
+
+    # def apply_box(self, bbox):
+    #     print(bbox)
+    #     print("hello")
+    #     return bbox
