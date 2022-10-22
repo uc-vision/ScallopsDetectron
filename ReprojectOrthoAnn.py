@@ -4,15 +4,17 @@ import pathlib as p
 import os
 import pickle
 from matplotlib import pyplot as plt
-import Params as P
 import cv2
 from detectron2.structures import BoxMode
 import json
 from tqdm import tqdm
 
-DISPLAY = False
+DISPLAY = True
 WAITKEY = 0
 UD_ALPHA = 0
+
+# TODO: compare DensePoints and Model for pickPoint
+# TODO: deal with annotations on image corners
 
 # RECONSTRUCTION_DIRS = [P.METASHAPE_OUTPUT_BASE + 'gopro_116_1/',
 #                        P.METASHAPE_OUTPUT_BASE + 'gopro_118/',
@@ -22,7 +24,7 @@ UD_ALPHA = 0
 
 DATASET_DIR_BASE = "/local/ScallopMaskDataset/"
 METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/'
-RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_119/']
+RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + '220618-210153/']
 
 def TransformPoints(pnts, transform_quart):
     return np.matmul(transform_quart, np.vstack([pnts, np.ones((1, pnts.shape[1]))]))[:3, :]
@@ -55,15 +57,20 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
     doc.open(RECON_DIR + 'recon.psx')
     label_dict = []
 
+    doc.chunks[0].importShapes('/csse/users/tkr25/PycharmProjects/ScallopsAI/shape_test.shp')
+
     for chunk_idx, chunk in enumerate(doc.chunks):
         print("Reprojecting chunk {}...".format(chunk_idx))
         chunk_marker_dict = {v.key: v.position for v in chunk.markers}
-        chunk_densepoints = chunk.dense_cloud
+        chunk_densepoints = chunk.model #dense_cloud
         chunk_transform = chunk.transform.matrix
-        chunk_scale = chunk.transform.scale
+        T_inv = chunk_transform.inv()
+        shapes_crs = chunk.shapes.crs
         print("Sorting out polygons...")
         chunk_polygons = []
         for shape in chunk.shapes.shapes:
+            # if shape.label.contains("scallop")
+            # elif shape.label.contains("rope")
             if shape.type == Metashape.Shape.Type.Polygon:
                 polygon = []
                 vertex_coords = shape.geometry.coordinates[0]
@@ -84,26 +91,35 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                         pnt_3D = chunk_densepoints.pickPoint(vec, vec_pnt)
                         if pnt_3D is not None and abs(pnt_3D.z) < 100:
                             polygon.append(pnt_3D)
-
                 # Upsample and check polygon points are valid
                 if len(polygon):
-                    polygon_up = UpsamplePoly(np.array(polygon), 5)
+                    polygon_up = UpsamplePoly(np.array(polygon), 20)
                     polygon_valid = []
                     for pnt in polygon_up:
                         m_pnt = Metashape.Vector(pnt)
-                        ray_pnt = Metashape.Vector([0, 0, -0.1])
-                        closest_intersection = chunk_densepoints.pickPoint(m_pnt, ray_pnt)
+                        ray_1 = m_pnt + Metashape.Vector([0, 0, 1.0]) # T_inv.mulp(m_pnt + Metashape.Vector([0, 0, 1000.0]))
+                        ray_2 = m_pnt - Metashape.Vector([0, 0, 1.0])  # T_inv.mulp(m_pnt - Metashape.Vector([0, 0, 1000.0]))
+                        m_pnt = shapes_crs.unproject(m_pnt)
+                        ray_1 = shapes_crs.unproject(ray_1)
+                        ray_2 = shapes_crs.unproject(ray_2)
+                        pnt_chunk = T_inv.mulp(m_pnt)
+                        ray_1_chunk = T_inv.mulp(ray_1)
+                        ray_2_chunk = T_inv.mulp(ray_2)
+                        closest_intersection = chunk_densepoints.pickPoint(pnt_chunk, ray_1_chunk)
+                        if closest_intersection is None:
+                            closest_intersection = chunk_densepoints.pickPoint(pnt_chunk, ray_2_chunk)
                         if closest_intersection is not None:
-                            if (m_pnt - closest_intersection).norm() < 0.1:
-                                polygon_valid.append(pnt)
+                            if (m_pnt - closest_intersection).norm() < 0.05 or True:
+                                polygon_valid.append(np.array(closest_intersection))
                     if len(polygon_valid) > 2:
                         chunk_polygons.append(np.array(polygon_valid))
         print("Number of valid scallop polygons in chunk: {}".format(len(chunk_polygons)))
 
         img_id = 0
         for cam in tqdm(chunk.cameras):
-            cam_quart = np.array(cam.transform).reshape((4, 4))
-            if not np.array_equal(cam_quart, np.eye(4)):
+            cam_quart = np.array(cam.transform if cam.transform is not None else np.eye(4)).reshape((4, 4))
+            cam_cov = np.array(cam.location_covariance).reshape((3, 3))
+            if 0.0 < np.sum(np.abs(cam_cov)) < 0.01:
                 cam_img_m = cam.image()
                 img_path = cam.photo.path
                 img_fn = img_path.split('/')[-1]
@@ -121,7 +137,7 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
 
                 # Deletion of image regions not in orthomosaic
                 valid_pixel_mask = np.zeros_like(img_cam_und_roi)
-                row_indices, col_indices = np.indices((h_ud, w_ud))[:, ::50, ::50]
+                row_indices, col_indices = np.indices((h_ud, w_ud))[:, ::20, ::20]
                 pnts_uv = np.array([col_indices.flatten(), row_indices.flatten(), col_indices.size*[1]], dtype=np.float32)
                 cam_rays = np.matmul(np.linalg.inv(camMtx), pnts_uv)
                 cam_pnts = TransformPoints(cam_rays, cam_quart)
@@ -177,7 +193,7 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                 record["annotations"] = objs
                 label_dict.append(record)
 
-                if DISPLAY:
+                if DISPLAY and len(display_polygon_l):
                     drawing = img_cam_und_roi.copy()
                     for polygon in display_polygon_l:
                         cv2.polylines(drawing, [polygon], False, (0, 255, 0), thickness=2)

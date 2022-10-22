@@ -77,8 +77,8 @@ DatasetCatalog.register(TEST_IMG_DIR, lambda dataset_dir=TEST_IMG_DIR: getDatase
 MetadataCatalog.get(TEST_IMG_DIR).set(thing_classes=["scallop"])
 
 CNN_INPUT_SHAPE = (800, 1333)
-augs = [A.GeometricTransform()] #transforms.Resize(CNN_INPUT_SHAPE)]
-        #transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE)] #A.GeometricTransform()
+augs = [transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE)] #A.GeometricTransform() A.GeometricTransform()] #transforms.Resize(CNN_INPUT_SHAPE)]
+#
 print(A.GeometricTransform().__dir__())
 mapper = A.CustomMapper(cfg, is_train=True, augmentations=augs)
 data_loader = build_detection_test_loader(cfg, dataset_name=TEST_IMG_DIR, mapper=mapper)

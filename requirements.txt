@@ -1,4 +1,4 @@
-Metashape == 1.7.2
+Metashape >= 1.7.2
 vtk >= 8
 opencv-python
 matplotlib

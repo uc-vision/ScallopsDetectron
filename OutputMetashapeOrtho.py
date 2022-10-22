@@ -10,7 +10,7 @@ WRITE_TILES = True
 TILE_SIZE = 5000
 
 METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/'
-METASHAPE_OUTPUT_DIR = METASHAPE_OUTPUT_BASE + 'gopro_115_colcal/'
+METASHAPE_OUTPUT_DIR = METASHAPE_OUTPUT_BASE + 'gopro_116_2/'
 ORTHO_DIR_PATH = METASHAPE_OUTPUT_DIR + 'ortho/'
 try:
     os.mkdir(ORTHO_DIR_PATH)
@@ -26,7 +26,7 @@ if WRITE_TILES:
     [path.unlink() for path in p.Path(DEM_DIR_PATH).iterdir()]
 
 doc = Metashape.Document()
-doc.open(P.METASHAPE_CHKPNT_PATH)
+doc.open(METASHAPE_OUTPUT_DIR + 'recon.psx')
 chunk = doc.chunk
 
 # Camera transformations are in chunk frame
@@ -92,8 +92,8 @@ region1 = Metashape.BBox()
 cam_min_xy -= np.array([3, 3])
 region_min = cam_min_xy
 cam_max_xy += np.array([3, 3])
-region_max = np.sign(cam_max_xy - cam_min_xy) * np.ceil(np.abs((cam_max_xy - cam_min_xy) / (P.TILE_SIZE * pix_scale))) * P.TILE_SIZE * pix_scale + cam_min_xy
-print((region_max - region_min) / (P.TILE_SIZE * pix_scale))
+region_max = np.sign(cam_max_xy - cam_min_xy) * np.ceil(np.abs((cam_max_xy - cam_min_xy) / (TILE_SIZE * pix_scale))) * TILE_SIZE * pix_scale + cam_min_xy
+print((region_max - region_min) / (TILE_SIZE * pix_scale))
 region1.min = Metashape.Vector(region_min)
 region1.max = Metashape.Vector(region_max)
 
@@ -106,10 +106,10 @@ if WRITE_TILES and REBUILD_ORTHO:
 
 if WRITE_TILES:
     chunk.exportRaster(DEM_DIR_PATH+"dem_"+".tif", source_data=Metashape.ElevationData, image_format=Metashape.ImageFormatTIFF,
-                       format=Metashape.RasterFormatTiles, split_in_blocks=True, block_height=P.TILE_SIZE, block_width=P.TILE_SIZE, resolution=pix_scale,
+                       format=Metashape.RasterFormatTiles, split_in_blocks=True, block_height=TILE_SIZE, block_width=TILE_SIZE, resolution=pix_scale,
                        white_background=False, region=region1)
     chunk.exportRaster(ORTHO_DIR_PATH+"ortho_"+".tif", source_data=Metashape.OrthomosaicData, image_format=Metashape.ImageFormatTIFF,
-                       format=Metashape.RasterFormatTiles, split_in_blocks=True, block_height=P.TILE_SIZE, block_width=P.TILE_SIZE, resolution=pix_scale,
+                       format=Metashape.RasterFormatTiles, split_in_blocks=True, block_height=TILE_SIZE, block_width=TILE_SIZE, resolution=pix_scale,
                        white_background=False, region=region1)
 
     # Delete non-intersecting DEM and Ortho tiles

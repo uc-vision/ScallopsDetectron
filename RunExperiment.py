@@ -14,8 +14,8 @@ WRITE = True
 RESUME = False
 SHOW_TRAINING_IMGS = False
 
-BASE_DIR = '/scratch/data/tkr25/' #'/local/'#'/scratch/data/tkr25/'  #
-NUM_GPUS = 4
+BASE_DIR = '/local/'#'/scratch/data/tkr25/'  #
+NUM_GPUS = 1
 BATCH_SIZE = 8
 
 CNN_INPUT_SHAPE = (800, 1333)
@@ -32,6 +32,7 @@ augs = [transforms.RandomBrightness(0.8, 1.2),
         transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),
         #A.RandomErasing(),
         #A.RandomColourNoise(),
+        A.GeometricTransform()
         ]
 no_augs = [transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),]
 

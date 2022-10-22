@@ -5,17 +5,23 @@ import subprocess as sp
 import numpy as np
 import struct
 import matplotlib.pyplot as plt
+import pathlib, os
 
-GOPRO_VIDEO_FOLDER = '/home/cosc/research/CVlab/General ROV Footage/Scallops/115'#'/home/cosc/research/CVlab/General ROV Footage/Marlborough Sounds - Mussel Farm/GOPRO'#
+GOPRO_VIDEO_FOLDER = '/home/cosc/research/CVlab/General ROV Footage/Scallops/128'  #'/home/cosc/research/CVlab/General ROV Footage/Marlborough Sounds - Mussel Farm/GOPRO' # '/local/HarvesterTowGopro' #
 VID_IDENTIFIER = ''
-IMAGE_WRITE_DIR = '/local/ScallopReconstructions/gopro_115_colcal/'
+IMAGE_WRITE_DIR = '/local/ScallopReconstructions/gopro_128/'
 SAVE_IMGS = True
 START_FRAME = 0
 END_FRAME = 100000
 EXTRACT_DATA = False
-EXTRACT_FPS = 3
+EXTRACT_FPS = 5
 CROP_MUL = 0.75
 FRAME_SHAPE = (2160, 3840, 3)
+
+if not pathlib.Path(IMAGE_WRITE_DIR).exists():
+    os.mkdir(IMAGE_WRITE_DIR)
+if not pathlib.Path(IMAGE_WRITE_DIR+'imgs/').exists():
+    os.mkdir(IMAGE_WRITE_DIR+'imgs/')
 
 if EXTRACT_DATA:
     first_file = list(P.Path(GOPRO_VIDEO_FOLDER).iterdir())[0]
@@ -40,6 +46,7 @@ if EXTRACT_DATA:
         cnt += 1000
         print("Byte cnt: {} ".format(cnt), end='\r')
         telem_pipe.stdout.flush()
+        #print(telem_buff)
         while len(telem_buff) >= 8:
             lb = telem_buff[:4]
             if lb in labels_bytes:
@@ -57,7 +64,17 @@ if EXTRACT_DATA:
 
             else:
                 telem_buff = telem_buff[1:]
+
     gpsf_array = np.array([int.from_bytes(data[3], "big", signed=False) for data in data_buff if data[0] == 'GPSF'])
+    #print(gpsf_array)
+
+    # gyro_array = np.array([[int.from_bytes(data[3][:2], "big", signed=False),
+    #                         int.from_bytes(data[3][2:4], "big", signed=False),
+    #                         int.from_bytes(data[3][4:6], "big", signed=False)] for data in data_buff if data[0] == 'GYRO'])
+    #print()
+    #print(gyro_array[0])
+    #exit(0)
+
     #print(gpsf_array)
     print("Max GPSF value: {}".format(np.max(gpsf_array)))
     #[print(data) for data in data_buff if data[0] == 'SCAL' and data[2] == 4]
@@ -72,17 +89,17 @@ if EXTRACT_DATA:
 
     exit(0)
 
-frame_cnt = 0
+frame_cnt = 2109
 cv2.namedWindow("Frames", cv2.WINDOW_NORMAL)
 cv2.namedWindow("Cropped", cv2.WINDOW_NORMAL)
 vid_paths = list(P.Path(GOPRO_VIDEO_FOLDER).iterdir())
 vid_paths.sort()
-vid_idx = 0
+vid_idx = 1
 for vid_path in [vid_paths[vid_idx]]:
     command = ["ffmpeg",
-               '-ss', '00:00:40',
+               '-ss', '00:00:00',
                '-i', vid_path,
-               '-t', '00:08:50',
+               '-t', '00:08:51',
                '-f', 'image2pipe',
                '-pix_fmt', 'rgb24',
                '-r', str(EXTRACT_FPS),
@@ -114,25 +131,25 @@ for vid_path in [vid_paths[vid_idx]]:
                 green = cv2.cvtColor(frame_cropped[:, :, 1], cv2.COLOR_GRAY2BGR)
                 red = cv2.cvtColor(frame_cropped[:, :, 2], cv2.COLOR_GRAY2BGR)
 
-                cv2.imwrite(IMAGE_WRITE_DIR+'comp_imgs_c/'+VID_IDENTIFIER+str(frame_cnt)+".png", frame_cropped)
+                cv2.imwrite(IMAGE_WRITE_DIR+'imgs/'+VID_IDENTIFIER+str(frame_cnt)+".png", frame_cropped)
 
-                STD_PRES = 10
-
-                blue_mean = np.mean(blue.astype(np.float32))
-                blue_std = np.std(blue.astype(np.float32))
-                blue_normalised = (255 * np.clip(0.5 * (blue.astype(np.float32) - blue_mean) / (STD_PRES * blue_std) + 0.5, 0.0, 1.0)).astype(np.uint8)
-
-                green_mean = np.mean(green.astype(np.float32))
-                green_std = np.std(green.astype(np.float32))
-                green_normalised = (255 * np.clip(0.5 * (green.astype(np.float32) - green_mean) / (STD_PRES * green_std) + 0.5, 0.0, 1.0)).astype(np.uint8)
-
-                red_mean = np.mean(red.astype(np.float32))
-                red_std = np.std(red.astype(np.float32))
-                red_normalised = (255 * np.clip(0.5 * (red.astype(np.float32) - red_mean) / (STD_PRES * red_std) + 0.5, 0.0, 1.0)).astype(np.uint8)
-
-                cv2.imwrite(IMAGE_WRITE_DIR+'in_imgs_b/'+VID_IDENTIFIER+str(frame_cnt)+".png", blue_normalised)
-                cv2.imwrite(IMAGE_WRITE_DIR+'in_imgs_g/'+VID_IDENTIFIER+str(frame_cnt)+".png", green_normalised)
-                cv2.imwrite(IMAGE_WRITE_DIR+'in_imgs_r/'+VID_IDENTIFIER+str(frame_cnt)+".png", red_normalised)
+                # STD_PRES = 10
+                #
+                # blue_mean = np.mean(blue.astype(np.float32))
+                # blue_std = np.std(blue.astype(np.float32))
+                # blue_normalised = (255 * np.clip(0.5 * (blue.astype(np.float32) - blue_mean) / (STD_PRES * blue_std) + 0.5, 0.0, 1.0)).astype(np.uint8)
+                #
+                # green_mean = np.mean(green.astype(np.float32))
+                # green_std = np.std(green.astype(np.float32))
+                # green_normalised = (255 * np.clip(0.5 * (green.astype(np.float32) - green_mean) / (STD_PRES * green_std) + 0.5, 0.0, 1.0)).astype(np.uint8)
+                #
+                # red_mean = np.mean(red.astype(np.float32))
+                # red_std = np.std(red.astype(np.float32))
+                # red_normalised = (255 * np.clip(0.5 * (red.astype(np.float32) - red_mean) / (STD_PRES * red_std) + 0.5, 0.0, 1.0)).astype(np.uint8)
+                #
+                # cv2.imwrite(IMAGE_WRITE_DIR+'in_imgs_b/'+VID_IDENTIFIER+str(frame_cnt)+".png", blue_normalised)
+                # cv2.imwrite(IMAGE_WRITE_DIR+'in_imgs_g/'+VID_IDENTIFIER+str(frame_cnt)+".png", green_normalised)
+                # cv2.imwrite(IMAGE_WRITE_DIR+'in_imgs_r/'+VID_IDENTIFIER+str(frame_cnt)+".png", red_normalised)
         except:
             "Frame failed!"
 

@@ -1,133 +1,113 @@
 import Metashape
+print("Metashape version {}".format(Metashape.version))
 import numpy as np
-import pathlib as p
-import os
-import pickle
-from matplotlib import pyplot as plt
 import cv2
-import pathlib
 from tqdm import tqdm
 import math
+from utils import file_utils, metashape_utils
+from scipy.spatial.transform import Rotation as R
+import time
 
-#TODO: constrain sequential images / start/end transformation?
-#TODO: Do lowres reconstruction and save camera positions, reload and do high res
+#TODO: DVL to camera transform not correct
 
 USE_INITIAL = False
-ROV_DATA = False
+USE_APPROX_REF = False
 
-MAX_PHOTOS_PER_CHUNK = 1000
-
-# RECONSTRUCTION_DIRS = [P.METASHAPE_OUTPUT_BASE + 'gopro_116_1/',
-#                        P.METASHAPE_OUTPUT_BASE + 'gopro_118/',
-#                        P.METASHAPE_OUTPUT_BASE + 'gopro_123/',
-#                        P.METASHAPE_OUTPUT_BASE + 'gopro_124/',
-#                        P.METASHAPE_OUTPUT_BASE + 'gopro_125/']
+MAX_PHOTOS_PER_CHUNK = 2000
+FILE_MOD = 2
 
 METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/'
-RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_115_colcal/']
+RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_116_2/'] #'/local/ScallopReconstructions/221008-122856/'] # METASHAPE_OUTPUT_BASE + 'gopro_116_1/',
+#                        METASHAPE_OUTPUT_BASE + 'gopro_118/',
+#                        METASHAPE_OUTPUT_BASE + 'gopro_123/',
+#                        METASHAPE_OUTPUT_BASE + 'gopro_124/',
+#                        METASHAPE_OUTPUT_BASE + 'gopro_125/']
+
+cam_offsets = {'000F315DAB37': -0.310, '000F315DB084': 0.0, '000F315DAB68': 0.310}
+gps_origin = np.array([174.53350, -35.845, 40]) #np.array([174.856321, -37.241498, 112.4])
+crs = "EPSG::4326"  # "EPSG::2193"
 
 for RECON_DIR in RECONSTRUCTION_DIRS:
-    if ROV_DATA:
-        [path.unlink() for path in p.Path(RECON_DIR + 'left/').iterdir()]
-        print("Converting images to png...")
-        folder_root = pathlib.Path(RECON_DIR)
-        file_list = [str(item) for item in folder_root.iterdir()]
-        file_list.sort()
-        left_imgs = [i for i in file_list if 'l0' in i]
-        right_imgs = [i for i in file_list if 'r0' in i]
-        img_pairs = list(zip(left_imgs, right_imgs))
-        for idx, (l_path, r_path) in tqdm(enumerate(img_pairs)):
-            img_l_bay = cv2.imread(l_path)
-            img_l = cv2.cvtColor(img_l_bay[:, :, 0][:, :, None], cv2.COLOR_BAYER_BG2BGR)
-            cv2.imwrite(RECON_DIR + 'left/' + str(idx) + '.png', img_l)
-    # def loadTelem(folder_path, telem_buff):
-    #     telem_pkl_file = open(folder_path + "viewer_data.pkl", "rb")
-    #     while True:
-    #         try:
-    #             telem_buff.append(pickle.load(telem_pkl_file))
-    #         except EOFError:
-    #             break
-    #         except:
-    #             break
-    #     telem_pkl_file.close()
-    # telem = []
-    # loadTelem(TELEM_PATH, telem)
-    # imu_data = []
-    # depth_data = []
-    # sonar_data = []
-    # viewer_data = []
-    # gps_data = []
-    # for item in telem:
-    #     if item[0] == b'topic_stereo_camera_calib':
-    #         print("Has Calib data!")
-    #     if item[0] == b'topic_gps':
-    #         gps_data.append(item)
-    #     if item[0] == b'topic_viewer_data':
-    #         viewer_data.append(item)
-    #     if item[0] == b'topic_imu':
-    #         imu_data.append(item)
-    #     if item[0] == b'topic_depth':
-    #         depth_data.append(item)
-    #     if item[0] == b'topic_sonar':
-    #         sonar_data.append(item)
-    # fig, ax = plt.subplots()
-    # s_time = depth_data[0][1]['ts']
-    # e_time = depth_data[-1][1]['ts']
-    # depth = np.array([item[1]['depth'] for item in depth_data])
-    # if 'temp' in depth_data[0][1]:
-    #     temp = np.array([item[1]['temp'] for item in depth_data])
-    #     ax.plot(np.linspace(s_time, e_time, len(temp)), temp, label='Temp (deg C)', color='magenta')
-    # if 'sonar' in sonar_data[0][1]:
-    #     sonar = np.array([item[1]['sonar'][0] for item in sonar_data]) / 1000
+    # ROV data processing if pkl file found
+    pkl_telem = file_utils.try_load_pkl(RECON_DIR)
 
+    print("Creating new doc")
     doc = Metashape.Document()
-    #doc.open(P.METASHAPE_OUTPUT_BASE + 'gopro_115_colcal/recon_channels.psx')  # 'test/test.psx')
 
-    dirs = list(p.Path(RECON_DIR).glob('**'))
-    sub_folders = [pth for pth in dirs if pth.is_dir() and pth.name.__contains__('in_imgs') and not pth.name[-1] in []]
-    img_paths = {folder.name: [str(pth) for pth in p.Path(str(folder) + '/').rglob('*.png')] for folder in sub_folders}
-    num_planes = len(img_paths)
-    for key, folder in img_paths.items():
-        img_paths[key] = sorted(folder, key=lambda pth: int(pth.split('/')[-1][:-4]))
-    img_path_tuples = list(zip(*img_paths.values()))  # [:200]
-    assert all(all(x.split('/')[-1] == pth_tuple[0].split('/')[-1] for x in pth_tuple) for pth_tuple in img_path_tuples)
+    img_path_tuples, sensor_ids = file_utils.get_impath_tuples(RECON_DIR)
+    num_sensors = len(sensor_ids)
+    img_path_tuples = img_path_tuples[::FILE_MOD]
 
-    print("Total number of photos: {}".format(len(img_path_tuples)))
+    print("Total number of photo sets: {}".format(len(img_path_tuples)))
+    print("Total number of sensors: {}".format(num_sensors))
     num_chunks = math.ceil(len(img_path_tuples) / MAX_PHOTOS_PER_CHUNK)
     print("Number of chunks: {}".format(num_chunks))
 
+    recon_start_ts = time.time()
     for chunk_i in range(num_chunks):
         img_paths_chunk = img_path_tuples[chunk_i * MAX_PHOTOS_PER_CHUNK:(chunk_i + 1) * MAX_PHOTOS_PER_CHUNK]
         print("Chunk IDX {}, num photos: {}".format(chunk_i, len(img_paths_chunk)))
         chunk = doc.addChunk()
+        chunk.crs = Metashape.CoordinateSystem(crs)
+        print(chunk.crs)
 
         print("Adding multisensor frames...")
-        filegroups = [num_planes]*len(img_paths_chunk)
+        filegroups = [num_sensors]*len(img_paths_chunk)
         filenames = list(sum(img_paths_chunk, ()))
         chunk.addPhotos(filenames=filenames, filegroups=filegroups, layout=Metashape.MultiplaneLayout)
-        sensors = {cam.photo.path.split('/')[-2][-1]: cam.sensor for cam in chunk.cameras[:num_planes]}
-        for key, sensor in sensors.items():
+        # Set sensor labels
+        for key, cam in zip(sensor_ids, chunk.cameras[:num_sensors]):
+            sensor = cam.sensor
             sensor.type = Metashape.Sensor.Type.Frame
             sensor.label = key
+            sensor.fixed_rotation = False
+            sensor.fixed_location = False
             sensor.fixed_calibration = False
-            sensor.master = sensors['b']
-        assert all(cam.photo.path.split('/')[-2][-1] == cam.sensor.label for cam in chunk.cameras)
+            #sensor.master = sensors['b']
 
-        print("Aligning cameras for multisensor...")
-        chunk.matchPhotos(downscale=2, reference_preselection_mode=Metashape.ReferencePreselectionSequential)
+        # Initialise camera positions if ROV data
+        if pkl_telem:
+            metashape_utils.init_cam_poses_pkl(chunk.cameras, pkl_telem, gps_origin, cam_offsets)
+        if USE_APPROX_REF:
+            metashape_utils.init_cam_poses_line(chunk.cameras, gps_origin, len(img_path_tuples))
+
+        doc.save(RECON_DIR + 'recon.psx')
+
+        print("LR camera alignment...")
+        chunk.matchPhotos(downscale=1, generic_preselection=True, guided_matching=False,
+                          reference_preselection=False,
+                          # reference_preselection_mode=Metashape.ReferencePreselectionSource,
+                          keypoint_limit=100e3, tiepoint_limit=20e3, keep_keypoints=False)
         chunk.alignCameras()
+        doc.save(RECON_DIR + 'recon_lr.psx')
+        # exit(0)
+
+        # ReferencePreselectionSource, ReferencePreselectionEstimated, ReferencePreselectionSequential
+        print("HR camera alignment...")
+        chunk.matchPhotos(downscale=1, generic_preselection=False, guided_matching=False,
+                          reference_preselection=True,
+                          reference_preselection_mode=Metashape.ReferencePreselectionEstimated,
+                          keypoint_limit=40e3, tiepoint_limit=4e3, keep_keypoints=True)
+        chunk.alignCameras()
+
         chunk.optimizeCameras()
+        doc.save(RECON_DIR + 'recon.psx')
+
+    print("Reconstruction time: {}s".format(time.time() - recon_start_ts))
 
     for chunk in doc.chunks:
         print("Chunk frames: {}".format(chunk.frames))
         print(len(chunk.cameras))
-        for i, cam in enumerate(chunk.cameras[:3]):
+        for i, cam in enumerate(chunk.cameras[:num_sensors]):
             s = cam.sensor
             photo_label = cam.photo.path.split('/')[-2][-1]
-            if i < 3:
-                s.label = photo_label
+            print()
             print("Cam type: {}".format(cam.type))
             print("Cam photo label: {}".format(photo_label))
+            c = s.calibration
+            cam_fov = np.array([math.degrees(2*math.atan(c.width / (2*(c.f + c.b1)))),
+                    math.degrees(2*math.atan(c.height / (2*c.f)))])
+            print("Sensor FOV: {}".format(cam_fov))
             print("Sensor layer idx: {}".format(s.layer_index))
             print("Sensor label: {}".format(s.label))
             print("Sensor master: {}".format(s.master))
@@ -135,76 +115,13 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
             print("Fixed pose: {}".format(s.fixed))
             print("Fixed rot: {}".format(s.fixed_rotation))
             print("Fixed pos: {}".format(s.fixed_location))
-            print()
 
-    print("Aligning multisensor chunks...")
-    if len(doc.chunks) > 1:
-        doc.alignChunks()
-        doc.mergeChunks()
+    # print("Aligning multisensor chunks...")
+    # if len(doc.chunks) > 1:
+    #     doc.alignChunks(method=0)
+    #     doc.mergeChunks()
 
-    doc.save(RECON_DIR + 'recon_channels.psx')
-
-    doc.open(RECON_DIR + 'recon_channels.psx')
-
-    print("Undistorting multisensor input images...")
-    if not os.path.isdir(RECON_DIR + 'out_imgs_u'):
-        os.mkdir(RECON_DIR + 'out_imgs_u', 0o777)
-    else:
-        [pth.unlink() for pth in p.Path(RECON_DIR + 'out_imgs_u').iterdir()]
-    undistort_maps = {}
-    master_mtx = None
-    for idx in range(num_planes):
-        sensor = doc.chunks[0].sensors[idx]
-        c = sensor.calibration
-        lbl = sensor.label
-        c.save(RECON_DIR + lbl + '_calibCV.calib')
-        cam_mtx = np.array([[c.f + c.b1, c.b2, c.cx + c.width / 2],
-                           [0, c.f, c.cy + c.height / 2],
-                           [0, 0, 1]])
-        if master_mtx is None:
-            master_mtx = cam_mtx
-        dist = np.array([[c.k1, c.k2, c.p2, c.p1, c.k3]])
-        print(lbl)
-        print(cam_mtx)
-        print(dist)
-        print()
-        undistort_maps[lbl] = cv2.initUndistortRectifyMap(cam_mtx, dist, None, master_mtx, (2880, 1620), cv2.CV_8UC1)
-    for pths in img_path_tuples:
-        ud_imgs = {}
-        for idx, pth in enumerate(pths):
-            pth_ch = pth.split('/')[-2][-1]
-            img = cv2.imread(pth)
-            img_ud = cv2.remap(img, undistort_maps[pth_ch][0], undistort_maps[pth_ch][1], interpolation=cv2.INTER_LINEAR)
-            ud_imgs[pth.split('/')[-2][-1]] = img_ud
-        imgs_gray = [cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) for img in [ud_imgs[k] for k in ['b', 'g', 'r']]]
-        col_img = np.dstack(imgs_gray)
-        cv2.imwrite(RECON_DIR + 'out_imgs_u/' + pths[0].split('/')[-1], col_img)
-
-    # -------------------- Colour reconstruction ----------------------------
-
-    col_doc = Metashape.Document()
-    col_imgs = [str(pth) for pth in p.Path(str(RECON_DIR + '/out_imgs_u/')).rglob('*.png')]
-
-    for chunk_i in range(num_chunks):
-        img_paths_chunk = col_imgs[chunk_i * MAX_PHOTOS_PER_CHUNK:(chunk_i + 1) * MAX_PHOTOS_PER_CHUNK]
-        print("Chunk IDX {}, num photos: {}".format(chunk_i, len(img_paths_chunk)))
-        chunk = col_doc.addChunk()
-        print(img_paths_chunk)
-
-        chunk.addPhotos(img_paths_chunk)
-        chunk.matchPhotos(downscale=2, reference_preselection_mode=Metashape.ReferencePreselectionSequential)
-        chunk.alignCameras()
-        chunk.optimizeCameras(fit_k4=True)
-        chunk.buildDepthMaps()
-        chunk.buildDenseCloud()
-
-    print("Aligning multisensor chunks...")
-    if len(col_doc.chunks) > 1:
-        col_doc.alignChunks()
-        col_doc.mergeChunks()
-
-    col_doc.save(RECON_DIR + 'recon_col.psx')
-
+    doc.save(RECON_DIR + 'recon.psx')
 
     #     chunk.buildDepthMaps(downscale=4, filter_mode=Metashape.AggressiveFiltering)
     #     chunk.buildDenseCloud()

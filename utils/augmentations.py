@@ -101,10 +101,6 @@ class GeometricTransform(transforms.Transform):
         print('polys')
         return polygons
 
-    def apply_segmentation(self, segmentation):
-        print('seg')
-        return segmentation
-
     def apply_coords(self, coords):
         print(coords.shape)
         print(np.mean(coords, axis=0))
