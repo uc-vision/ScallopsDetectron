@@ -1,16 +1,16 @@
 import numpy as np
 import os
+import gc
 import pathlib
 from detectron2.data import transforms
-import gc
 from detectron2.engine import launch
-from utils import maskrcnn_setup, train_net, augmentations as A
 from detectron2.data import build_detection_train_loader
+from detectron2.utils.visualizer import Visualizer
 import cv2
 from datetime import datetime
+from utils import maskrcnn_setup, train_net, augmentations as A
 
-
-WRITE = True
+WRITE = False
 RESUME = False
 SHOW_TRAINING_IMGS = False
 
@@ -32,7 +32,7 @@ augs = [transforms.RandomBrightness(0.8, 1.2),
         transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),
         #A.RandomErasing(),
         #A.RandomColourNoise(),
-        A.GeometricTransform()
+        #A.GeometricTransform()
         ]
 no_augs = [transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),]
 
@@ -42,11 +42,10 @@ experiment_titles = ["HR+LR PROP MOREDATA AUGS",
                      ]
 augmentation_sets = [augs,
                      ]
-valid_datasets = ['lowres_scan_210113_064700_prop', 'gopro_116_0_ortho', 'gopro_116_0_prop']
-train_valid_dataset_sets = [[['gopro_115_prop', 'gopro_119_prop', 'lowres_scan_210113_065012_prop'], valid_datasets],
+valid_dataset = [BASE_DIR+'ScallopMaskDataset/'+dir for dir in ['lowres_scan_210113_064700_prop', 'gopro_116_0_ortho', 'gopro_116_0_prop']]
+train_dataset_1 = [BASE_DIR+'ScallopReconstructions/'+dir for dir in ['gopro_119/left']]
+train_valid_dataset_sets = [[train_dataset_1, valid_dataset],
                             ]
-train_valid_dataset_sets = [[[BASE_DIR+'ScallopMaskDataset/'+sssd for sssd in ssd] for ssd in sd] for sd in train_valid_dataset_sets]
-
 
 def main(args):
     cfg = maskrcnn_setup.setup(args)
@@ -56,10 +55,16 @@ def main(args):
         data_loader = build_detection_train_loader(cfg, mapper=mapper)
         for data in data_loader:
             image = data[0]['image'].to('cpu').numpy().transpose([1, 2, 0])
-            print(data[0]['image'].shape)
-            cv2.imshow("Training data", image)
-            cv2.waitKey()
-            print(data)
+            v = Visualizer(image[:, :, ::-1])
+            if data[0]["instances"].__len__() > 0:
+                v = v.overlay_instances(masks=data[0]["instances"].gt_masks, boxes=data[0]["instances"].gt_boxes)
+                image_ann = v.get_image()[:, :, ::-1]
+                cv2.imshow("Training Image Annotated", image_ann)
+            #print(data[0]['image'].shape)
+            cv2.imshow("Training Image", image)
+            if cv2.waitKey() == ord('q'):
+                exit(0)
+            #print(data)
 
     trainer = train_net.Trainer(cfg, args["augmentations"])
     trainer.resume_or_load(resume=RESUME)

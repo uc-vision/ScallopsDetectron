@@ -1,9 +1,45 @@
 import Metashape
 import numpy as np
 from utils import dvl_data_utils
+import cv2
+from matplotlib import pyplot as plt
 
 gps2m_scale = np.array([111e3, 111e3, 1])
 
+def print_alignment_stats(cams, logger=None):
+    total_cams = len(cams)
+    aligned_cams = 0
+    loc_covariances = []
+    for cam in cams:
+        if cam.transform:
+            aligned_cams += 1
+        if cam.location_covariance:
+            loc_covariances.append(np.array(cam.location_covariance).reshape((3, 3)))
+    if len(loc_covariances):
+        diag_vecs = np.array(loc_covariances)[:, (0, 1, 2), (0, 1, 2)].transpose()
+        mean_covs = np.round(np.mean(diag_vecs, axis=1), 3)
+    else:
+        mean_covs = [0, 0, 0]
+    print_f = logger.info if logger else print
+    print_f('================================================')
+    print_f("Cameras aligned: {} / {}".format(aligned_cams, total_cams))
+    print_f('MEAN location covariance x {} y {} z {}'.format(mean_covs[0], mean_covs[1], mean_covs[2]))
+    print_f('================================================')
+    # fig = plt.figure()
+    # ax = fig.add_subplot(projection='3d')
+    # ax.scatter(diag_vecs[0], diag_vecs[1], diag_vecs[2])
+    # ax.set_xlabel('X')
+    # ax.set_ylabel('Y')
+    # ax.set_zlabel('Z')
+    # plt.show()
+    return aligned_cams / len(cams), np.mean(mean_covs)
+
+def init_cam_pose_approx(cams, origin):
+    for cam in cams:
+        #cam.reference.rotation = Metashape.Vector([0, 0, 0])
+        cam.reference.location = Metashape.Vector(origin)
+        #cam.reference.rotation_accuracy = Metashape.Vector([20, 20, 20])
+        cam.reference.location_accuracy = Metashape.Vector(np.array([100.0, 100.0, 20.0]))
 
 def init_cam_poses_line(cams, origin, num_frames):
     global_cam_idx = 0
@@ -20,8 +56,8 @@ def init_cam_poses_line(cams, origin, num_frames):
             cam.reference.rotation = Metashape.Vector([0, 0, 180])
             cam.reference.location = Metashape.Vector(pos_offset)
             pos_offset[0] -= (200 / num_frames) / gps2m_scale[0]
-        cam.reference.rotation_accuracy = Metashape.Vector([20, 20, 20])
-        cam.reference.location_accuracy = Metashape.Vector(np.array([5.0, 5.0, 5.0]) / gps2m_scale)
+        cam.reference.rotation_accuracy = Metashape.Vector([50, 50, 50])
+        cam.reference.location_accuracy = Metashape.Vector(np.array([20.0, 20.0, 10.0]) / gps2m_scale)
         global_cam_idx += 1
 
 def init_cam_poses_pkl(cams, pkl_telem, origin, cam_offsets):

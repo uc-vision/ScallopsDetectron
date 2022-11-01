@@ -6,16 +6,20 @@ import numpy as np
 import struct
 import matplotlib.pyplot as plt
 import pathlib, os
+from threading import Timer
 
 GOPRO_VIDEO_FOLDER = '/home/cosc/research/CVlab/General ROV Footage/Scallops/128'  #'/home/cosc/research/CVlab/General ROV Footage/Marlborough Sounds - Mussel Farm/GOPRO' # '/local/HarvesterTowGopro' #
-VID_IDENTIFIER = ''
+START_TIMES = ['00:00:00', '00:00:00', '00:00:00']
+END_TIMES = ['00:08:52', '00:08:52', '00:08:52']
+EXTRACT_FPS = 10
+
 IMAGE_WRITE_DIR = '/local/ScallopReconstructions/gopro_128/'
+
+SUB_DIR = 'imgs/'
 SAVE_IMGS = True
-START_FRAME = 0
-END_FRAME = 100000
 EXTRACT_DATA = False
-EXTRACT_FPS = 5
-CROP_MUL = 0.75
+IMSHOW = False
+CENTER_CROP_MUL = 0.75
 FRAME_SHAPE = (2160, 3840, 3)
 
 if not pathlib.Path(IMAGE_WRITE_DIR).exists():
@@ -89,49 +93,53 @@ if EXTRACT_DATA:
 
     exit(0)
 
-frame_cnt = 2109
-cv2.namedWindow("Frames", cv2.WINDOW_NORMAL)
-cv2.namedWindow("Cropped", cv2.WINDOW_NORMAL)
+frame_cnt = 0
+if IMSHOW:
+    cv2.namedWindow("Frames", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Cropped", cv2.WINDOW_NORMAL)
 vid_paths = list(P.Path(GOPRO_VIDEO_FOLDER).iterdir())
 vid_paths.sort()
-vid_idx = 1
-for vid_path in [vid_paths[vid_idx]]:
+for strt, end, vid_path in zip(vid_paths, START_TIMES, END_TIMES):
     command = ["ffmpeg",
-               '-ss', '00:00:00',
+               '-ss', strt,
                '-i', vid_path,
-               '-t', '00:08:51',
+               '-t', end,
                '-f', 'image2pipe',
                '-pix_fmt', 'rgb24',
                '-r', str(EXTRACT_FPS),
                '-vcodec', 'rawvideo', '-']
     pipe = sp.Popen(command, stdout=sp.PIPE, bufsize=10**8)
 
-    while pipe.stdout.readable() and frame_cnt < END_FRAME:
-        raw_image = pipe.stdout.read(FRAME_SHAPE[0]*FRAME_SHAPE[1]*FRAME_SHAPE[2])
+    while pipe.stdout.readable():
+        try:
+            timeout_timer = Timer(timeout, thread.interrupt_main)
+            timeout_timer.start()
+            raw_image = pipe.stdout.read(FRAME_SHAPE[0] * FRAME_SHAPE[1] * FRAME_SHAPE[2])
+        except KeyboardInterrupt:
+            break
+
         image = np.fromstring(raw_image, dtype='uint8')
 
-        # if image.size == 0:
-        #     print("zero img!")
-        #     continue
         try:
             frame = image.reshape((FRAME_SHAPE[0], FRAME_SHAPE[1], FRAME_SHAPE[2]))[:, :, ::-1]
             frame_cnt += 1
-            print("Vid: {}, Frame cnt: {}    ".format(vid_idx, frame_cnt), end='\r')
-            cv2.imshow('Frames', frame)
+            if IMSHOW:
+                cv2.imshow('Frames', frame)
 
-            if SAVE_IMGS and frame_cnt > START_FRAME and frame_cnt <= END_FRAME:
+            if SAVE_IMGS:
                 center = np.array(frame.shape) / 2
-                h, w, _ = (np.array(frame.shape) * CROP_MUL).astype(np.int)
+                h, w, _ = (np.array(frame.shape) * CENTER_CROP_MUL).astype(np.int)
                 x = int(center[1] - w/2)
                 y = int(center[0] - h/2)
                 frame_cropped = frame[y:y+h, x:x+w]
-                cv2.imshow("Cropped", frame_cropped)
+                if IMSHOW:
+                    cv2.imshow("Cropped", frame_cropped)
 
-                blue = cv2.cvtColor(frame_cropped[:, :, 0], cv2.COLOR_GRAY2BGR)
-                green = cv2.cvtColor(frame_cropped[:, :, 1], cv2.COLOR_GRAY2BGR)
-                red = cv2.cvtColor(frame_cropped[:, :, 2], cv2.COLOR_GRAY2BGR)
+                cv2.imwrite(IMAGE_WRITE_DIR + SUB_DIR + str(frame_cnt) + ".png", frame_cropped)
 
-                cv2.imwrite(IMAGE_WRITE_DIR+'imgs/'+VID_IDENTIFIER+str(frame_cnt)+".png", frame_cropped)
+                # blue = cv2.cvtColor(frame_cropped[:, :, 0], cv2.COLOR_GRAY2BGR)
+                # green = cv2.cvtColor(frame_cropped[:, :, 1], cv2.COLOR_GRAY2BGR)
+                # red = cv2.cvtColor(frame_cropped[:, :, 2], cv2.COLOR_GRAY2BGR)
 
                 # STD_PRES = 10
                 #
@@ -153,14 +161,14 @@ for vid_path in [vid_paths[vid_idx]]:
         except:
             "Frame failed!"
 
-        pipe.stdout.flush()
+        #pipe.stdout.flush()
 
-        key = cv2.waitKey(1)
-        if key == ord('q'):
-            exit(0)
-        elif key == ord(' '):
-            break
+        if IMSHOW:
+            key = cv2.waitKey(1)
+            if key == ord('q'):
+                exit(0)
+            elif key == ord(' '):
+                break
 
-    vid_idx += 1
-
-cv2.destroyAllWindows()
+if IMSHOW:
+    cv2.destroyAllWindows()

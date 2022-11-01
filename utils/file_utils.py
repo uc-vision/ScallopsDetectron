@@ -9,9 +9,13 @@ def get_impath_tuples(dir):
     dirs = list(pathlib.Path(dir).glob('**'))
     sub_folders = [pth for pth in dirs if pth.is_dir() and pth.name.__contains__('imgs')] # and not pth.name[-1] in ['7', '8']]
     sensor_ids = [pth.name.split('/')[-1].split('_')[-1] for pth in sub_folders]
-    img_paths = {folder.name: [str(pth) for pth in pathlib.Path(str(folder) + '/').rglob('*.png')] for folder in sub_folders}
+    img_paths = {}
+    for folder in sub_folders:
+        glob_paths = list(pathlib.Path(str(folder) + '/').rglob('*.png')) + \
+                     list(pathlib.Path(str(folder) + '/').rglob('*.jpg'))
+        img_paths[folder.name] = [str(pth) for pth in glob_paths]
     for key, folder in img_paths.items():
-        img_paths[key] = sorted(folder, key=lambda pth: int(pth.split('/')[-1][:-4]))
+        img_paths[key] = sorted(folder, key=lambda pth: int(''.join(filter(str.isdigit, pth.split('/')[-1][:-4]))))
     img_path_tuples = list(zip(*img_paths.values()))
     assert all(all(x.split('/')[-1] == pth_tuple[0].split('/')[-1] for x in pth_tuple) for pth_tuple in img_path_tuples)
     return img_path_tuples, sensor_ids
@@ -51,7 +55,7 @@ class PickleTelemetry():
             dvl_data_proc = [(raw_data['ts'], dvl_data_utils.parse_line(raw_data['dvl_raw'])) for raw_data in self.telem_dict[b'topic_dvl_raw']]
             self.dvl_data_dr = [(ts, d) for ts, d in dvl_data_proc if d and d['type'] == 'deadreacon']
 
-            dvl_points_txyzXYZ = np.array([[ts, d['x'], d['y'], d['z'], d['roll']+180, d['pitch'], d['yaw']+90] for ts, d in dvl_data_dr])
+            dvl_points_txyzXYZ = np.array([[ts, d['x'], d['y'], d['z'], d['roll']+180, d['pitch'], d['yaw']+90] for ts, d in self.dvl_data_dr])
             fig = plt.figure()
             ax = plt.axes(projection='3d')
             ax.plot3D(dvl_points_txyzXYZ[:, 1], dvl_points_txyzXYZ[:, 2], dvl_points_txyzXYZ[:, 3], 'gray')
@@ -66,3 +70,9 @@ class PickleTelemetry():
             ax2.plot(dvl_points_txyzXYZ[:, 6], label='yaw')
             ax2.legend()
             plt.show()
+
+# def main():
+#     pkl_telem = try_load_pkl("/csse/research/CVlab/bluerov_data/221008-101944/")
+#
+# if __name__ == '__main__':
+#     main()

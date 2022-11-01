@@ -2,10 +2,12 @@ from detectron2.data import DatasetCatalog
 from detectron2.config import get_cfg
 from detectron2.data import MetadataCatalog
 import json
-
+import os
 
 def getDatasetDict(dataset_dir):
-    with open(dataset_dir + "/labels.json", 'r') as fp:
+    json_files = [fn for fn in os.listdir(dataset_dir) if fn.endswith('.json')]
+    assert len(json_files) == 1
+    with open(dataset_dir + "/" + json_files[0], 'r') as fp:
         dataset_dict = json.load(fp)
         for data_entry in dataset_dict:
             data_entry["file_name"] = dataset_dir + '/' + data_entry["file_name"].split('/')[-1]
