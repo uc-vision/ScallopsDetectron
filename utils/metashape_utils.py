@@ -34,18 +34,40 @@ def print_alignment_stats(cams, logger=None):
     # plt.show()
     return aligned_cams / len(cams), np.mean(mean_covs)
 
-def init_cam_pose_approx(cams, origin):
-    for cam in cams:
+def add_gps_marker(chunk, origin):
+    gps_marker = chunk.addMarker()
+    gps_marker.label = 'approx_gps_marker'
+    gps_marker.reference.location = Metashape.Vector(origin)
+    #gps_marker.Reference.accuracy = Metashape.Vector(np.array([20.0, 20.0, 1.0]))
+    first_cam = chunk.cameras[0]
+    # proj = Metashape.Marker.Projection()
+    # proj.coord = (100.0, 100.0)
+    # gps_marker.projections[first_cam] = proj
+    gps_marker.projections[first_cam] = Metashape.Marker.Projection((100.0, 100.0), True)
+
+def add_gps_approx(chunk, origin):
+    for cam in chunk.cameras:
+        loc = cam.center
+        print(loc)
+        print(origin)
+        loc_adj = Metashape.Vector(origin) + loc / gps2m_scale
+        print(loc)
+        print(loc_adj)
+        cam.reference.location = loc_adj
+    exit(0)
+
+def init_cam_pose_approx(chunk, origin):
+    for cam in chunk.cameras:
         #cam.reference.rotation = Metashape.Vector([0, 0, 0])
         cam.reference.location = Metashape.Vector(origin)
         #cam.reference.rotation_accuracy = Metashape.Vector([20, 20, 20])
-        cam.reference.location_accuracy = Metashape.Vector(np.array([100.0, 100.0, 20.0]))
+        cam.reference.location_accuracy = Metashape.Vector(np.array([20.0, 20.0, 1.0]))
 
-def init_cam_poses_line(cams, origin, num_frames):
+def init_cam_poses_line(chunk, origin, num_frames):
     global_cam_idx = 0
     pos_offset = origin.copy()
     halfway_idx = num_frames // 2
-    for cam in cams:
+    for cam in chunk.cameras:
         if global_cam_idx < halfway_idx:
             cam.reference.rotation = Metashape.Vector([0, 0, 0])
             cam.reference.location = Metashape.Vector(pos_offset)
@@ -60,10 +82,10 @@ def init_cam_poses_line(cams, origin, num_frames):
         cam.reference.location_accuracy = Metashape.Vector(np.array([20.0, 20.0, 10.0]) / gps2m_scale)
         global_cam_idx += 1
 
-def init_cam_poses_pkl(cams, pkl_telem, origin, cam_offsets):
+def init_cam_poses_pkl(chunk, pkl_telem, origin, cam_offsets):
     cam_quarts_dvl = []
     pos_offset = origin.copy()
-    for cam in cams:
+    for cam in chunk.cameras:
         if not int(cam.label) in pkl_telem.img_timestamps:
             continue
         img_ts = pkl_telem.img_timestamps[int(cam.label)]
@@ -114,6 +136,41 @@ def init_cam_poses_pkl(cams, pkl_telem, origin, cam_offsets):
             cam_quarts_dvl[-1][1][:3, 3] = cam_pos_wrld + pos_offset
             cam.reference.location = Metashape.Vector(cam_pos_wrld)
             cam.reference.location_accuracy = Metashape.Vector([100.0, 100.0, 0.01])
+
+
+# def main():
+#     doc = Metashape.Document()
+#     RECON_DIR = '/local/ScallopReconstructions/gopro_119/'
+#     doc.open(RECON_DIR + "recon.psx")
+#     #doc.read_only = False
+#
+#     chunk = doc.chunks[0]
+#     print(chunk.shapes)
+#     chunk.exportShapes(RECON_DIR+'chunk_shapes.gpkg')
+#
+#     # Convert shapes to 2D
+#     import geopandas as gpd
+#     from shapely.geometry import Polygon
+#     gdf = gpd.read_file(RECON_DIR+'chunk_shapes.gpkg')
+#     new_geo = []
+#     for polygon in gdf.geometry:
+#         if polygon.has_z:
+#             assert polygon.geom_type == 'Polygon'
+#             lines = [xy[:2] for xy in list(polygon.exterior.coords)]
+#             new_geo.append(Polygon(lines))
+#     gdf.geometry = new_geo
+#     gdf.to_file(RECON_DIR + 'chunk_shapes_2D.gpkg')
+#
+#     # chunk.crs = chunk.crs = Metashape.CoordinateSystem("EPSG::4326")
+#     # chunk.transform = Metashape.ChunkTransform()
+#     # chunk.transform.translation = chunk.crs.unproject(Metashape.Vector(np.array([174.53350, -35.845, 40])))
+#     # chunk.transform.rotation = Metashape.Matrix(np.eye(3))
+#     # chunk.transform.scale = 1.0
+#     # print(chunk.transform.matrix)
+#     # doc.save()
+#
+# if __name__ == '__main__':
+#     main()
 
 
 # if False:

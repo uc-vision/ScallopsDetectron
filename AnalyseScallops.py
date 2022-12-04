@@ -1,57 +1,107 @@
 import Metashape
 print("Metashape version {}".format(Metashape.version))
-from utils import VTKPointCloud as PC, scallop_poly_functions as spf, math_utils
+from utils import VTKPointCloud as PC, polygon_functions as spf
 from matplotlib import pyplot as plt
 import numpy as np
 from tqdm import tqdm
+import re
+import glob
+from shapely.geometry import Polygon
+import geopandas as gpd
 
-RECON_DIR = '/local/ScallopReconstructions/gopro_119/'
+# TODO: make single filtered polygon per cluster
+# TODO: display valid/invalid polygon examples
+# TODO: weighted confidence function?
+# TODO: outlier removal
+
+RECON_DIR = '/local/ScallopReconstructions/gopro_119_2/'
 
 SAVE_PLT = True
-DISPLAY = True
+DISPLAY = False
+OUTPUT_SHAPES = True
+
+SAVE_SHAPES_2D = True
 
 SHAPEGROUP_KEY = "Pred"  # "Ann" None
 
-SCALE_MUL = 1.0 #1.1236
-CLUSTER_CNT_THRESH = 0 #3
-
-PC_MUL = 1.9
+SCALE_MUL = 1.0
+CLUSTER_CNT_THRESH = 3
 
 doc = Metashape.Document()
 doc.open(RECON_DIR + "recon.psx")
+doc.read_only = False
 
-scallop_detections = {}
+chunk = doc.chunks[0]
 
-for chunk in doc.chunks:
-    shapes_crs = chunk.shapes.crs
-    chunk_transform = chunk.transform.matrix
-    print("Extracting Shapes...")
-    chunk_polygons_d = spf.get_chunk_polygons_dict(chunk, key=SHAPEGROUP_KEY, world_crs=True)
-    for key, scallop_polys in chunk_polygons_d.items():
-        print("Calculating PCA and sizes for {}...".format(key))
-        key_detections = []
-        for scallop_poly in tqdm(scallop_polys):
-            scallop_poly = scallop_poly[::(1 + scallop_poly.shape[0] // 20)]
-            pc_vecs, pc_lengths, center_pnt = spf.polyvert_pca(scallop_poly)
-            pc_lengths = np.sqrt(pc_lengths) * PC_MUL
-            scaled_pc_lengths = pc_lengths * 2
-            pca_width = scaled_pc_lengths[0]
-            scallop_vert_mat = np.repeat(scallop_poly[None], scallop_poly.shape[0], axis=0)
-            scallop_vert_dists = np.linalg.norm(scallop_vert_mat - scallop_vert_mat.transpose([1, 0, 2]), axis=2)
-            max_polygon_width = np.max(scallop_vert_dists)
-            scallop_center = scallop_poly.mean(axis=0)
-            key_detections.append([scallop_center, min(max_polygon_width * SCALE_MUL, 0.2)])
-        scallop_detections[key] = key_detections
+print("Extracting Shapes...")
+if chunk.shapes is None:
+    chunk.shapes = Metashape.Shapes()
+    chunk.shapes.crs = Metashape.CoordinateSystem("EPSG::4326")
+shapes_crs = chunk.shapes.crs
+chunk_transform = chunk.transform.matrix
 
-for key, detections in scallop_detections.items():
-    # TODO: efficient clustering, confidence function, outlier removal
-    print("Performing Clustering for {}...".format(key))
-    scallop_detection_pnts = np.array([det[0] for det in detections])
-    centroids, cluster_counts, detection_classes = math_utils.kmeans_clustering(scallop_detection_pnts, k_means=-1)
-    valid_classes = np.where(cluster_counts >= CLUSTER_CNT_THRESH)[0]
-    valid_detection_clusters = [[centroids[cls],
-                                 cluster_counts[cls],
-                                 np.array([det[1] for i, det in enumerate(detections) if detection_classes[i] == cls]).mean()] for cls in valid_classes]
+shape_files = glob.glob(RECON_DIR + '*.gpkg')
+for shape_file in shape_files:
+    chunk.importShapes(shape_file)
+    lbl = shape_file.split('/')[-1].split('.')[0]
+    chunk.shapes.groups[-1].label = lbl
+
+chunk_polygons_d = spf.get_chunk_polygons_dict(chunk, key=SHAPEGROUP_KEY, world_crs=True)
+
+for key, polygon_detections in chunk_polygons_d.items():
+    print("Analysing {}...".format(key))
+
+    print("Filtering {} polygons...".format(len(polygon_detections)))
+    scallop_polygons, invalid_polygons = spf.filter_polygon_detections(polygon_detections)
+    print("Filtered down to {} polygons".format(len(scallop_polygons)))
+
+    print("RNN clustering polygons...")
+    polygon_clusters = spf.polygon_rnn_clustering(scallop_polygons)
+    print("Num clusters: {}".format(len(polygon_clusters)))
+
+    print("Filtering clusters...")
+    polygon_clusters, invalid_clusters = spf.filter_clusters(polygon_clusters)
+    print("Filtered down to {} clusters".format(len(polygon_clusters)))
+
+    print("Combining cluster masks...")
+    filtered_polygons = [clust[0] for clust in polygon_clusters]
+
+    print("Reducing filtered polygon complexity")
+    filtered_polygons = [poly[::(1 + len(poly) // 40)] for poly in filtered_polygons]
+
+    if OUTPUT_SHAPES:
+        print("Saving filtered polygons back to recon...")
+        filtered_shapegroup = chunk.shapes.addGroup()
+        filtered_shapegroup.color = (100, 255, 100, 255)
+        filtered_shapegroup.label = "Filtered_" + '_'.join(key.split('_')[1:])
+        filtered_shapegroup.enabled = False
+        for flt_poly in filtered_polygons:
+            new_shape = chunk.shapes.addShape()
+            new_shape.group = filtered_shapegroup
+            new_shape.label = "scallop_flt" #_{}".format(round(0.01, 2))
+            new_shape.geometry.type = Metashape.Geometry.Type.PolygonType
+            polygon = [shapes_crs.project(Metashape.Vector(pnt)) for pnt in flt_poly]
+            new_shape.geometry = Metashape.Geometry.Polygon(polygon)
+        #doc.save()
+
+        shapes_fn = RECON_DIR+key
+        print(chunk.shapes.groups)
+        chunk.exportShapes(shapes_fn + '_Filtered.gpkg', groups=[len(chunk.shapes.groups)-1])
+
+        if SAVE_SHAPES_2D:
+            # Convert shapes to 2D
+            gdf = gpd.read_file(shapes_fn + '_Filtered.gpkg')
+            new_geo = []
+            for polygon in gdf.geometry:
+                if polygon.has_z:
+                    assert polygon.geom_type == 'Polygon'
+                    lines = [xy[:2] for xy in list(polygon.exterior.coords)]
+                    new_geo.append(Polygon(lines))
+            gdf.geometry = new_geo
+            gdf.to_file(shapes_fn + '_Filtered_2.gpkg')
+
+    print("Calculating cluster sizes...")
+    scallop_sizes = spf.calc_cluster_widths(polygon_clusters, mode='max')
 
     print("Plotting...")
 
@@ -72,9 +122,6 @@ for key, detections in scallop_detections.items():
     # fig.set_size_inches(8, 6)
     # if SAVE_PLT:
     #     plt.savefig(RECON_DIR + "ScallopSpatialDistImg_{}.jpeg".format(key), dpi=600)
-
-    scallop_pnts = np.array([loc for loc, cnt, size in valid_detection_clusters])
-    scallop_sizes = np.array([size for loc, cnt, size in valid_detection_clusters]) * 100
 
     fig = plt.figure(2)
     plt.title("Scallop Size Distribution (freq. vs size [cm]) for " + key)

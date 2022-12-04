@@ -13,19 +13,15 @@ import os
 #TODO: DVL to camera transform not correct
 
 USE_INITIAL = False
-USE_APPROX_REF = False
-INIT_CAM_APPROX = True
+USE_APPROX_REF = True
+ADD_GPS_MARKER = False
 
-REPROCESS = True
-
-MAX_PHOTOS_PER_CHUNK = 4000
-FILE_MOD = 3
+MAX_PHOTOS_PER_CHUNK = 3000
+FILE_MOD = 1
 
 METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/' #'/scratch/data/tkr25/Reconstructions/' #
-RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_128/',]
-                       #METASHAPE_OUTPUT_BASE + 'gopro_116_2/']
-#                        METASHAPE_OUTPUT_BASE + 'gopro_124/',
-#                        METASHAPE_OUTPUT_BASE + 'gopro_125/']
+RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_124/',
+                       ]
 
 cam_offsets = {'000F315DAB37': -0.310, '000F315DB084': 0.0, '000F315DAB68': 0.310}
 gps_origin = np.array([174.53350, -35.845, 40]) #np.array([174.856321, -37.241498, 112.4])
@@ -52,78 +48,89 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
     logger.info("Creating new doc or opening existing...")
     doc = Metashape.Document()
     if os.path.isfile(RECON_DIR+"recon.psx"):
-        logger.info("Recon file already exists, loading...")
-        doc.open(RECON_DIR+"recon.psx")
-    if doc.read_only:
-        logger.error("Doc is read only")
-        exit(0)
+        logger.info("Recon file already exists, replacing...")
+    doc.read_only = False
     doc.save(RECON_DIR + 'recon.psx')
 
-    if REPROCESS or len(doc.chunks) == 0:
-        start_ts = time.time()
-        img_path_tuples, sensor_ids = file_utils.get_impath_tuples(RECON_DIR)
-        num_sensors = len(sensor_ids)
-        img_path_tuples = img_path_tuples[::FILE_MOD]
+    start_ts = time.time()
+    img_path_tuples, sensor_ids = file_utils.get_impath_tuples(RECON_DIR)
+    num_sensors = len(sensor_ids)
+    img_path_tuples = img_path_tuples[::FILE_MOD]
 
-        logger.info("Total number of photo sets: {}".format(len(img_path_tuples)))
-        logger.info("Total number of sensors: {}".format(num_sensors))
-        num_chunks = math.ceil(len(img_path_tuples) / MAX_PHOTOS_PER_CHUNK)
-        logger.info("Number of chunks: {}".format(num_chunks))
+    logger.info("Total number of photo sets: {}".format(len(img_path_tuples)))
+    logger.info("Total number of sensors: {}".format(num_sensors))
+    num_chunks = math.ceil(len(img_path_tuples) / MAX_PHOTOS_PER_CHUNK)
+    logger.info("Number of chunks: {}".format(num_chunks))
 
-        for chunk_i in range(num_chunks):
-            img_paths_chunk = img_path_tuples[chunk_i * MAX_PHOTOS_PER_CHUNK:(chunk_i + 1) * MAX_PHOTOS_PER_CHUNK]
-            logger.info("Chunk IDX {}, num photos: {}".format(chunk_i, len(img_paths_chunk)))
-            chunk = doc.addChunk()
-            chunk.crs = Metashape.CoordinateSystem(crs)
-            logger.info(chunk.crs)
+    for chunk_i in range(num_chunks):
+        img_paths_chunk = img_path_tuples[chunk_i * MAX_PHOTOS_PER_CHUNK:(chunk_i + 1) * MAX_PHOTOS_PER_CHUNK]
+        logger.info("Chunk IDX {}, num photos: {}".format(chunk_i, len(img_paths_chunk)))
+        chunk = doc.addChunk()
+        chunk.crs = Metashape.CoordinateSystem(crs)
+        logger.info(chunk.crs)
 
-            logger.info("Adding multisensor frames...")
-            filegroups = [num_sensors]*len(img_paths_chunk)
-            filenames = list(sum(img_paths_chunk, ()))
-            chunk.addPhotos(filenames=filenames, filegroups=filegroups, layout=Metashape.MultiplaneLayout)
-            # Set sensor labels
-            for key, cam in zip(sensor_ids, chunk.cameras[:num_sensors]):
-                sensor = cam.sensor
-                sensor.type = Metashape.Sensor.Type.Frame
-                sensor.label = key
-                sensor.fixed_rotation = False
-                sensor.fixed_location = False
-                sensor.fixed_calibration = False
-                #sensor.master = sensors['b']
+        logger.info("Adding multisensor frames...")
+        filegroups = [num_sensors]*len(img_paths_chunk)
+        filenames = list(sum(img_paths_chunk, ()))
+        chunk.addPhotos(filenames=filenames, filegroups=filegroups, layout=Metashape.MultiplaneLayout)
+        # Set sensor labels
+        for key, cam in zip(sensor_ids, chunk.cameras[:num_sensors]):
+            sensor = cam.sensor
+            sensor.type = Metashape.Sensor.Type.Frame
+            sensor.label = key
+            sensor.fixed_rotation = False
+            sensor.fixed_location = False
+            sensor.fixed_calibration = False
+            #sensor.master = sensors['b']
 
-            # Initialise camera positions if ROV data
-            if pkl_telem:
-                metashape_utils.init_cam_poses_pkl(chunk.cameras, pkl_telem, gps_origin, cam_offsets)
-            if USE_APPROX_REF:
-                metashape_utils.init_cam_poses_line(chunk.cameras, gps_origin, len(img_path_tuples))
-            if INIT_CAM_APPROX:
-                metashape_utils.init_cam_pose_approx(chunk.cameras, gps_origin)
+        # Initialise camera positions if ROV data
+        if pkl_telem:
+            metashape_utils.init_cam_poses_pkl(chunk, pkl_telem, gps_origin, cam_offsets)
+        if ADD_GPS_MARKER:
+            metashape_utils.add_gps_marker(chunk, gps_origin)
 
-            doc.save()
-        logger.info("Photo add time: {} mins".format((time.time() - start_ts) / 60))
+        doc.save()
+    logger.info("Photo add time: {} mins".format((time.time() - start_ts) / 60))
 
-    if REPROCESS or not any(cam.transform is not None for cam in doc.chunks[0].cameras):
-        start_ts = time.time()
-        for chunk in doc.chunks:
-            logger.info("LR camera alignment...")
-            chunk.matchPhotos(downscale=1, generic_preselection=True, guided_matching=False,
-                              reference_preselection=False,
-                              # reference_preselection_mode=Metashape.ReferencePreselectionSource,
-                              keypoint_limit=100e3, tiepoint_limit=20e3, keep_keypoints=False)
-            chunk.alignCameras()
-            metashape_utils.print_alignment_stats(chunk.cameras, logger=logger)
+    start_ts = time.time()
+    for chunk in doc.chunks:
+        logger.info("LR camera alignment...")
+        chunk.matchPhotos(downscale=2, generic_preselection=True, guided_matching=False,
+                          reference_preselection=False,
+                          # reference_preselection_mode=Metashape.ReferencePreselectionSource,
+                          keypoint_limit=100e3, tiepoint_limit=20e3, keep_keypoints=False)
+        chunk.alignCameras()
+        metashape_utils.print_alignment_stats(chunk.cameras, logger=logger)
 
-            # ReferencePreselectionSource, ReferencePreselectionEstimated, ReferencePreselectionSequential
-            logger.info("HR camera alignment...")
-            chunk.matchPhotos(downscale=1, generic_preselection=False, guided_matching=False,
-                              reference_preselection=True,
-                              reference_preselection_mode=Metashape.ReferencePreselectionEstimated,
-                              keypoint_limit=40e3, tiepoint_limit=4e3, keep_keypoints=False)
-            chunk.alignCameras()
-            chunk.optimizeCameras()
-            metashape_utils.print_alignment_stats(chunk.cameras, logger=logger)
-            doc.save()
+        # ReferencePreselectionSource, ReferencePreselectionEstimated, ReferencePreselectionSequential
+        logger.info("HR camera alignment...")
+        chunk.matchPhotos(downscale=1, generic_preselection=False, guided_matching=False,
+                          reference_preselection=True,
+                          reference_preselection_mode=Metashape.ReferencePreselectionEstimated,
+                          keypoint_limit=40e3, tiepoint_limit=4e3, keep_keypoints=False)
+        chunk.alignCameras()
+        chunk.optimizeCameras()
+        metashape_utils.print_alignment_stats(chunk.cameras, logger=logger)
         logger.info("Camera alignment time: {} mins".format((time.time() - start_ts) / 60))
+
+        if USE_APPROX_REF:
+            chunk.transform = Metashape.ChunkTransform()
+            chunk.transform.translation = chunk.crs.unproject(Metashape.Vector(gps_origin))
+            chunk.transform.rotation = Metashape.Matrix(np.eye(3))
+            chunk.transform.scale = 1.0
+            # metashape_utils.add_gps_approx(chunk, gps_origin)
+
+        logger.info("Building DepthMaps...")
+        start_ts = time.time()
+        chunk.buildDepthMaps(downscale=2, filter_mode=Metashape.AggressiveFiltering)
+        logger.info("Depthmap build time: {} mins".format((time.time() - start_ts) / 60))
+        doc.save()
+
+        logger.info("Building Dense cloud...")
+        start_ts = time.time()
+        chunk.buildDenseCloud()
+        logger.info("Dense cloud build time: {} mins".format((time.time() - start_ts) / 60))
+        doc.save()
 
     # Print Sensor Intrinsics
     for chunk in doc.chunks:
@@ -146,49 +153,9 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
             logger.info("Fixed rot: {}".format(s.fixed_rotation))
             logger.info("Fixed pos: {}".format(s.fixed_location))
 
-    if len(doc.chunks) > 1:
-        logger.info("Aligning chunks...")
-        doc.alignChunks(method=0)
-        #doc.mergeChunks()
-
-    for chunk in doc.chunks:
-        if REPROCESS or chunk.depth_maps is None:
-            logger.info("Building DepthMaps...")
-            start_ts = time.time()
-            chunk.buildDepthMaps(downscale=2, filter_mode=Metashape.AggressiveFiltering)
-            logger.info("Depthmap build time: {} mins".format((time.time() - start_ts) / 60))
-            doc.save()
-
-        if REPROCESS or chunk.dense_cloud is None:
-            logger.info("Building Dense cloud...")
-            start_ts = time.time()
-            chunk.buildDenseCloud()
-            logger.info("Dense cloud build time: {} mins".format((time.time() - start_ts) / 60))
-            doc.save()
-
-        if REPROCESS or chunk.elevation is None:
-            logger.info("Building DEM...")
-            start_ts = time.time()
-            chunk.buildDem(source_data=Metashape.DenseCloudData, resolution=0.005)
-            logger.info("DEM build time: {} mins".format((time.time() - start_ts) / 60))
-            doc.save()
-
-        if REPROCESS or chunk.orthomosaic is None:
-            logger.info("Building Ortho...")
-            start_ts = time.time()
-            chunk.buildOrthomosaic(surface_data=Metashape.ElevationData, resolution=0.0005)
-            logger.info("ORTHO build time: {} mins".format((time.time() - start_ts) / 60))
-            doc.save()
-
-        logger.info("Exporting Rasters...")
-        chunk.exportRaster(RECON_DIR + "dem_" + ".tif", source_data=Metashape.ElevationData,
-                           image_format=Metashape.ImageFormatTIFF,
-                           format=Metashape.RasterFormatTiles, split_in_blocks=False, resolution=0.001,
-                           white_background=False)
-
-        chunk.exportRaster(RECON_DIR+"ortho_"+".tif", source_data=Metashape.OrthomosaicData,
-                           image_format=Metashape.ImageFormatTIFF,
-                           format=Metashape.RasterFormatTiles, split_in_blocks=False, resolution=0.001,
-                           white_background=False)
+    # if len(doc.chunks) > 1:
+    #     logger.info("Aligning chunks...")
+    #     doc.alignChunks(method=0)
+    #     #doc.mergeChunks()
 
     logger.info("Recon finish time: {}".format(datetime.now().strftime("%H:%M %d/%m/%Y")))

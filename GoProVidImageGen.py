@@ -6,14 +6,15 @@ import numpy as np
 import struct
 import matplotlib.pyplot as plt
 import pathlib, os
-from threading import Timer
+import threading
 
-GOPRO_VIDEO_FOLDER = '/home/cosc/research/CVlab/General ROV Footage/Scallops/128'  #'/home/cosc/research/CVlab/General ROV Footage/Marlborough Sounds - Mussel Farm/GOPRO' # '/local/HarvesterTowGopro' #
-START_TIMES = ['00:00:00', '00:00:00', '00:00:00']
-END_TIMES = ['00:08:52', '00:08:52', '00:08:52']
-EXTRACT_FPS = 10
+GOPRO_VIDEO_FOLDER = '/home/cosc/research/CVlab/ROV Gopro Footage/Scallops/121'  #'/home/cosc/research/CVlab/General ROV Footage/Marlborough Sounds - Mussel Farm/GOPRO' # '/local/HarvesterTowGopro' #
+START_TIMES = ['00:05:00', '00:00:00', '00:00:00']
+END_TIMES = ['00:08:52', '00:08:52', '00:03:52']
+START_IDX = 2
+EXTRACT_FPS = 5
 
-IMAGE_WRITE_DIR = '/local/ScallopReconstructions/gopro_128/'
+IMAGE_WRITE_DIR = '/local/ScallopReconstructions/gopro_121/'
 
 SUB_DIR = 'imgs/'
 SAVE_IMGS = True
@@ -93,13 +94,17 @@ if EXTRACT_DATA:
 
     exit(0)
 
-frame_cnt = 0
+def printa():
+    print("hello")
+    return 0
+
+frame_cnt = 3819
 if IMSHOW:
     cv2.namedWindow("Frames", cv2.WINDOW_NORMAL)
     cv2.namedWindow("Cropped", cv2.WINDOW_NORMAL)
 vid_paths = list(P.Path(GOPRO_VIDEO_FOLDER).iterdir())
 vid_paths.sort()
-for strt, end, vid_path in zip(vid_paths, START_TIMES, END_TIMES):
+for vid_path, strt, end in list(zip(vid_paths, START_TIMES, END_TIMES))[START_IDX:]:
     command = ["ffmpeg",
                '-ss', strt,
                '-i', vid_path,
@@ -111,13 +116,13 @@ for strt, end, vid_path in zip(vid_paths, START_TIMES, END_TIMES):
     pipe = sp.Popen(command, stdout=sp.PIPE, bufsize=10**8)
 
     while pipe.stdout.readable():
-        try:
-            timeout_timer = Timer(timeout, thread.interrupt_main)
-            timeout_timer.start()
-            raw_image = pipe.stdout.read(FRAME_SHAPE[0] * FRAME_SHAPE[1] * FRAME_SHAPE[2])
-        except KeyboardInterrupt:
-            break
-
+        # try:
+        #     timeout_timer = threading.Timer(5.0, printa)
+        #     timeout_timer.start()
+        #     raw_image = pipe.stdout.read(FRAME_SHAPE[0] * FRAME_SHAPE[1] * FRAME_SHAPE[2])
+        # except KeyboardInterrupt:
+        #     break
+        raw_image = pipe.stdout.read(FRAME_SHAPE[0] * FRAME_SHAPE[1] * FRAME_SHAPE[2])
         image = np.fromstring(raw_image, dtype='uint8')
 
         try:
@@ -161,7 +166,7 @@ for strt, end, vid_path in zip(vid_paths, START_TIMES, END_TIMES):
         except:
             "Frame failed!"
 
-        #pipe.stdout.flush()
+        pipe.stdout.flush()
 
         if IMSHOW:
             key = cv2.waitKey(1)
