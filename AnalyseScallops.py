@@ -98,7 +98,7 @@ for key, polygon_detections in chunk_polygons_d.items():
                     lines = [xy[:2] for xy in list(polygon.exterior.coords)]
                     new_geo.append(Polygon(lines))
             gdf.geometry = new_geo
-            gdf.to_file(shapes_fn + '_Filtered_2.gpkg')
+            gdf.to_file(shapes_fn + '_Filtered_2D.gpkg')
 
     print("Calculating cluster sizes...")
     scallop_sizes = spf.calc_cluster_widths(polygon_clusters, mode='max')
