@@ -4,10 +4,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import geopandas as gpd
 import math
+import os
+
+HOME_DIR = '/local'  # '/home/tim'
+STATION_DIR = HOME_DIR + '/Dropbox/NIWA_UC/January_2021/Station_3_Grid/'
 
 NBINS = 60
 
-MATCH_DIST_THRESH = 0.05
+MATCH_DIST_THRESH = 0.1
 ERROR_NBINS = 30
 
 celly = lambda cell: float(cell[1]) - 1
@@ -24,11 +28,11 @@ def convert_gpsvec_m(lat1, lon1, lat2, lon2):
 STATION_NO = 3
 
 def main():
-    xls = pd.ExcelFile('/home/tim/Dropbox/NIWA_UC/January_2021/ruk2101 raw data.xlsx')
+    xls = pd.ExcelFile(HOME_DIR + '/Dropbox/NIWA_UC/January_2021/ruk2101 raw data.xlsx')
     grid_sheet = pd.read_excel(xls, 'grid')
     print(grid_sheet.keys())
 
-    gdf = gpd.read_file('/home/tim/Dropbox/NIWA_UC/January_2021/Station_3_Grid/live_labelled.gpkg')
+    gdf = gpd.read_file(STATION_DIR + 'live_labelled_3D.gpkg')
     labelled_scallop_lengths = []
     labelled_scallop_centers = []
     for name, linestring in zip(gdf.NAME, gdf.geometry):
@@ -42,7 +46,7 @@ def main():
     labelled_lengths = np.array(labelled_scallop_lengths)
     labelled_centers_gps = np.array(labelled_scallop_centers)
 
-    gdf = gpd.read_file('/home/tim/Dropbox/NIWA_UC/January_2021/Station_3_Grid/gridref.gpkg')
+    gdf = gpd.read_file(STATION_DIR + 'gridref.gpkg')
     ref_datun_gps = np.array(gdf.geometry[0].coords)
     ref_vec = convert_gpsvec_m(ref_datun_gps[0, 1], ref_datun_gps[0, 0], ref_datun_gps[1, 1], ref_datun_gps[1, 0])
     ref_vec /= np.linalg.norm(ref_vec) + 1e-16
@@ -75,30 +79,35 @@ def main():
                 matched_lengths_diver.append(diver_length)
                 matched_lengths_ortho.append(labelled_lengths[closest_idx])
 
+    print("Plotting...")
+
+    if not pathlib.Path(STATION_DIR+'plots/').exists():
+        os.mkdir(STATION_DIR+'plots/')
+
     fig = plt.figure()
     plt.title("Scallop Size Distribution (freq. vs size [mm])")
     plt.ylabel("Frequency")
     plt.xlabel("Scallop Width [mm]")
     plt.hist(diver_lengths, bins=NBINS, alpha=0.7)
     plt.hist(labelled_scallop_lengths, bins=NBINS, alpha=0.7)
-    plt.figtext(0.15, 0.85, "Total diver count: {}".format(len(diver_lengths)))
-    plt.figtext(0.15, 0.82, "Total ortho count: {}".format(len(labelled_scallop_lengths)))
+    plt.figtext(0.15, 0.76, "Total diver count: {}".format(len(diver_lengths)))
+    plt.figtext(0.15, 0.73, "Total ortho count: {}".format(len(labelled_scallop_lengths)))
     plt.grid(True)
     plt.legend(['Diver measured', 'Ortho measured'])
     fig.set_size_inches(8, 6)
-    #plt.savefig(RECON_DIR + "ScallopSizeDistImg_{}.jpeg".format(key), dpi=600)
+    plt.savefig(STATION_DIR + "plots/ScallopSizeDistOverlap.png", dpi=900)
 
     fig = plt.figure()
     plt.title("Scallop Size Distribution (freq. vs size [mm])")
     plt.ylabel("Frequency")
     plt.xlabel("Scallop Width [mm]")
     plt.hist([diver_lengths, labelled_scallop_lengths], bins=NBINS, alpha=0.7)
-    plt.figtext(0.15, 0.85, "Total diver count: {}".format(len(diver_lengths)))
-    plt.figtext(0.15, 0.82, "Total ortho count: {}".format(len(labelled_scallop_lengths)))
+    plt.figtext(0.15, 0.76, "Total diver count: {}".format(len(diver_lengths)))
+    plt.figtext(0.15, 0.73, "Total ortho count: {}".format(len(labelled_scallop_lengths)))
     plt.grid(True)
     plt.legend(['Diver measured', 'Ortho measured'])
     fig.set_size_inches(8, 6)
-
+    plt.savefig(STATION_DIR + "plots/ScallopSizeDistSidebySide.png", dpi=900)
 
     fig = plt.figure()
     plt.title("Scallop Ortho Size Error [mm]")
@@ -110,7 +119,7 @@ def main():
     plt.figtext(0.15, 0.79, "Error Distribution Mean: {}mm".format(round(np.array(length_errors).mean(), 2)))
     plt.grid(True)
     fig.set_size_inches(8, 6)
-    # plt.savefig(RECON_DIR + "ScallopSizeDistImg_{}.jpeg".format(key), dpi=600)
+    plt.savefig(STATION_DIR + "plots/ScallopSizeError_mm.png", dpi=900)
 
     fig = plt.figure()
     plt.title("Scallop Ortho Size Error [%]")
@@ -122,7 +131,7 @@ def main():
     plt.figtext(0.15, 0.79, "Error Distribution Mean: {}%".format(round((100 * np.array(length_errors) / np.array(matched_lengths_diver)).mean(), 2)))
     plt.grid(True)
     fig.set_size_inches(8, 6)
-    # plt.savefig(RECON_DIR + "ScallopSizeDistImg_{}.jpeg".format(key), dpi=600)
+    plt.savefig(STATION_DIR + "plots/ScallopSizeError_perc.png", dpi=900)
 
     fig = plt.figure()
     plt.title("Scallop Spatial Distribution")
@@ -133,6 +142,7 @@ def main():
     plt.legend(['Diver measured', 'Ortho measured'])
     plt.grid(True)
     fig.set_size_inches(8, 8)
+    plt.savefig(STATION_DIR + "plots/ScallopSpatialDist.png", dpi=900)
 
     fig = plt.figure()
     plt.title("Scallop Ortho vs Diver Width Measurement")
@@ -143,6 +153,7 @@ def main():
     plt.figtext(0.15, 0.85, "Total matches: {}".format(len(length_errors)))
     plt.grid(True)
     fig.set_size_inches(8, 8)
+    plt.savefig(STATION_DIR + "plots/DiverVsOrthoErrorLine.png", dpi=900)
 
     plt.show()
 

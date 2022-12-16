@@ -1,4 +1,5 @@
 import geopandas as gpd
+import rasterio
 from shapely.geometry import Polygon
 from shapely.geometry import LineString
 import pathlib
@@ -6,7 +7,8 @@ import glob
 import numpy as np
 import math
 
-RECON_DIR = '/home/tim/Dropbox/NIWA_UC/January_2021/Station_3_Grid/'
+HOME_DIR = '/local'  # /home/tim
+RECON_DIR = HOME_DIR + '/Dropbox/NIWA_UC/January_2021/Station_3_Grid/'
 
 SAVE_2D = False
 
@@ -31,38 +33,42 @@ def measure_chordlen(lat1, lon1, lat2, lon2):
     return c * 1000
 
 def main():
+    dem_tif = rasterio.open(RECON_DIR + 'dem_.tif')
+    print(dem_tif.crs)
+
     shape_files = glob.glob(RECON_DIR + '*.gpkg')
     print(shape_files)
     for sf in shape_files:
-        if 'labelled' in sf:
+        if any(k in sf for k in ['labelled', 'proc', 'ref']):
             continue
         fn = sf.split('/')[-1].split('.')[0]
+        print(fn)
         gdf = gpd.read_file(sf)
-        new_labels = []
-        new_geom = []
+        print(gdf.crs)
+        new_labels_2D = []
+        new_labels_3D = []
+        new_geom_2D = []
+        new_geom_3D = []
         for name, linestring in zip(gdf.NAME, gdf.geometry):
             line_pnts = np.array(linestring.coords)
-            length = 0
-            if len(line_pnts) > 2:
-                print("line with >2 pnts!")
+            elavation_vals = np.array(list(dem_tif.sample(line_pnts[:, :2])))[:, 0]
+            line_pnts[:, 2] = elavation_vals
+            length_2D = 0
+            length_3D = 0
+            if len(line_pnts) == 0 or len(line_pnts) > 2:
+                print("Invalid line: {}".format(name))
             for i in range(len(line_pnts) - 1):
-                len_2D = measure_chordlen(line_pnts[i, 1], line_pnts[i, 0], line_pnts[i+1, 1], line_pnts[i+1, 0])
-                length += len_2D # math.sqrt(len_2D**2 + (line_pnts[i+1, 2] - line_pnts[i, 2])**2)
-            label = fn + '_' + str(round(length, 4))
-            print(label)
-            label = '_'.join(label.split(' '))
-            new_labels.append(label)
-            if len(line_pnts) > 1:
-                new_line = [xy[:2] for xy in list(linestring.coords)]
-                new_geom.append(LineString(new_line))
-            else:
-                new_geom.append(linestring)
-        gdf.NAME = new_labels
-        labelled_str = '_labelled'
-        if SAVE_2D:
-            gdf.geometry = new_geom
-            labelled_str += '_2D'
-        gdf.to_file(RECON_DIR + '_'.join(fn.split(' ')) + labelled_str + '.gpkg')
+                length_2D = measure_chordlen(line_pnts[i, 1], line_pnts[i, 0], line_pnts[i+1, 1], line_pnts[i+1, 0])
+                length_3D = math.sqrt(length_2D**2 + (line_pnts[i+1, 2] - line_pnts[i, 2])**2)
+            label = '_'.join((fn + '_').split(' '))
+            new_labels_3D.append(label + '3D_' + str(round(length_3D, 4)))
+            new_geom_3D.append(LineString(line_pnts))
+            new_labels_2D.append(label + '2D_' + str(round(length_2D, 4)))
+            new_geom_2D.append(LineString(line_pnts[:, :2]))
+        gdf_2D = gpd.GeoDataFrame({'geometry': new_geom_2D, 'NAME': new_labels_2D}, geometry='geometry', crs=gdf.crs)
+        gdf_2D.to_file(RECON_DIR + '_'.join(fn.split(' ')) + '_proc_2D' + '.gpkg')
+        gdf_3D = gpd.GeoDataFrame({'geometry': new_geom_3D, 'NAME': new_labels_3D}, geometry='geometry', crs=gdf.crs)
+        gdf_3D.to_file(RECON_DIR + '_'.join(fn.split(' ')) + '_proc_3D' + '.gpkg')
 
 if __name__ == '__main__':
     main()
