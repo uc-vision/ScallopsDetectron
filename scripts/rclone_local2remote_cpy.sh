@@ -1,0 +1,1 @@
+rclone copy -u /local/Dropbox/NIWA_UC/ OneDriveNIWAUC:/NIWA_UC

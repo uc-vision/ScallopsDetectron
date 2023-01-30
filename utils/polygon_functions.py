@@ -4,6 +4,7 @@ from tqdm import tqdm
 import Metashape
 import re
 import math
+from utils import geo_utils
 
 RNN_DISTANCE = 0.030
 SCALLOP_MAX_SIZE = 0.15
@@ -12,6 +13,7 @@ CLUSTER_CNT_THRESH = 2
 CENTROID_ERR_THRESH = 0.05  # Threshold distance of centroid to cluster centroid to be inlier
 
 CNN_CONF_THRESH = 0.5
+
 def filter_polygon_detections(polygon_detections):
     # Filter on polygon contour shape, CNN confidence, symmetry in width dimension, convexity, curve, pca statistics
     valid_polygons = []
@@ -86,10 +88,12 @@ def calc_cluster_widths(polygon_clusters, mode=None):
         cluster_widths_l.append(cluster_poly_width)
     return cluster_widths_l
 
-def polygon_rnn_clustering(polygons):
+def polygon_rnn_clustering(polygons, labels):
     unclustered_polygons = np.array(polygons, dtype=object).copy()
+    unclustered_labels = np.array(labels, dtype=object).copy()
     unclustered_centers = np.array([np.mean(poly, axis=0) for poly in polygons])
     polygon_clusters = []
+    clustered_labels = []
     while unclustered_centers.shape[0]:
         seed_center = unclustered_centers[0]
         unclst_dists = np.linalg.norm(unclustered_centers - seed_center, axis=1)
@@ -98,10 +102,13 @@ def polygon_rnn_clustering(polygons):
         unclst_dists = np.linalg.norm(unclustered_centers - new_center, axis=1)
         neighbour_idxs = np.where(unclst_dists < RNN_DISTANCE)
         cluster_polygons = unclustered_polygons[neighbour_idxs]
+        cluster_labels = unclustered_labels[neighbour_idxs]
         polygon_clusters.append(cluster_polygons)
+        clustered_labels.append(cluster_labels)
         unclustered_polygons = np.delete(unclustered_polygons, neighbour_idxs, axis=0)
         unclustered_centers = np.delete(unclustered_centers, neighbour_idxs, axis=0)
-    return polygon_clusters
+        unclustered_labels = np.delete(unclustered_labels, neighbour_idxs, axis=0)
+    return polygon_clusters, clustered_labels
 
     # K-means clustering with class reduction if centers too close
     # centroids = points if k_means == -1 else points[np.random.randint(points.shape[0], size=k_means)]

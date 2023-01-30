@@ -3,10 +3,16 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import geopandas as gpd
-import math
+import math, os
 
 HOME_DIR = '/local'  # '/home/tim'
 STATION_DIR = HOME_DIR + '/Dropbox/NIWA_UC/January_2021/Station_3_Grid/'
+if not pathlib.Path(STATION_DIR + 'plots').exists():
+    os.mkdir(STATION_DIR + 'plots')
+if not pathlib.Path(STATION_DIR + 'plots/tagged').exists():
+    os.mkdir(STATION_DIR + 'plots/tagged')
+
+SHOW_PLOTS = True
 
 STATION_NO = 3
 ERROR_NBINS = 6
@@ -44,6 +50,7 @@ def main():
         if abs(err) < 40:
             errors.append(err)
             valid_diver_lengths.append(diver_lengths[idx])
+    errors = np.array(errors)
 
     fig = plt.figure()
     plt.title("Tagged Scallop Size Distribution (freq. vs size [mm])")
@@ -56,7 +63,7 @@ def main():
     plt.grid(True)
     plt.legend(['Diver measured', 'Ortho measured'])
     fig.set_size_inches(8, 6)
-    plt.savefig(STATION_DIR + "plots/TaggedScallopSizeDistOverlap.png", dpi=900)
+    plt.savefig(STATION_DIR + "plots/tagged/TaggedScallopSizeDistOverlap.png", dpi=900)
 
     fig = plt.figure()
     plt.title("Tagged Scallop Size Distribution (freq. vs size [mm])")
@@ -68,7 +75,7 @@ def main():
     plt.grid(True)
     plt.legend(['Diver measured', 'Ortho measured'])
     fig.set_size_inches(8, 6)
-    plt.savefig(STATION_DIR + "plots/TaggedScallopSizeDistSideBySide.png", dpi=900)
+    plt.savefig(STATION_DIR + "plots/tagged/TaggedScallopSizeDistSideBySide.png", dpi=900)
 
     fig = plt.figure()
     plt.title("Tagged Scallop Ortho Size Error [mm]")
@@ -76,11 +83,11 @@ def main():
     plt.xlabel("Measurement Error [mm]")
     plt.hist(errors, bins=ERROR_NBINS)
     plt.figtext(0.15, 0.85, "Count: {}".format(len(errors)))
-    plt.figtext(0.15, 0.82, "Avg Absolute Error: {}mm".format(round(np.abs(np.array(errors)).mean(), 2)))
+    plt.figtext(0.15, 0.82, "Error STD: {}mm".format(round(np.sqrt(np.mean((errors - errors.mean())**2)), 2)))
     plt.figtext(0.15, 0.79, "Error Distribution Mean: {}mm".format(round(np.array(errors).mean(), 2)))
     plt.grid(True)
     fig.set_size_inches(8, 6)
-    plt.savefig(STATION_DIR + "plots/TaggedScallopSizeError_mm.png", dpi=900)
+    plt.savefig(STATION_DIR + "plots/tagged/TaggedScallopSizeError_mm.png", dpi=900)
 
     fig = plt.figure()
     plt.title("Tagged Scallop Ortho Size Error [%]")
@@ -88,13 +95,13 @@ def main():
     plt.xlabel("Measurement Error [%]")
     plt.hist(100 * np.array(errors) / np.array(valid_diver_lengths), bins=ERROR_NBINS)
     plt.figtext(0.15, 0.85, "Count: {}".format(len(errors)))
-    plt.figtext(0.15, 0.82, "Avg Absolute Error: {}%".format(
-        round((100 * np.abs(np.array(errors)) / np.array(valid_diver_lengths)).mean(), 2)))
+    error_perc = 100 * errors / np.array(valid_diver_lengths)
+    plt.figtext(0.15, 0.82, "Error STD: {}%".format(round(np.sqrt(np.mean((error_perc - error_perc.mean())**2)), 2)))
     plt.figtext(0.15, 0.79, "Error Distribution Mean: {}%".format(
         round((100 * np.array(errors) / np.array(valid_diver_lengths)).mean(), 2)))
     plt.grid(True)
     fig.set_size_inches(8, 6)
-    plt.savefig(STATION_DIR + "plots/TaggedScallopSizeError_perc.png", dpi=900)
+    plt.savefig(STATION_DIR + "plots/tagged/TaggedScallopSizeError_perc.png", dpi=900)
 
     fig = plt.figure()
     plt.title("Tagged Scallop Ortho vs Diver Width Measurement")
@@ -105,9 +112,10 @@ def main():
     plt.figtext(0.15, 0.85, "Total count: {}".format(len(diver_lengths)))
     plt.grid(True)
     fig.set_size_inches(8, 8)
-    plt.savefig(STATION_DIR + "plots/TaggedDiverVsOrthoErrorLine.png", dpi=900)
+    plt.savefig(STATION_DIR + "plots/tagged/TaggedDiverVsOrthoErrorLine.png", dpi=900)
 
-    plt.show()
+    if SHOW_PLOTS:
+        plt.show()
 
 if __name__ == '__main__':
     main()

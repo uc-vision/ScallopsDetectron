@@ -14,10 +14,8 @@ print("Metashape version {}".format(Metashape.version))
 import time
 from datetime import datetime
 import glob
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, Point
 import geopandas as gpd
-
-SAVE_SHAPES_2D = True
 
 UD_ALPHA = 0
 IMG_RS_MOD = 2
@@ -48,7 +46,7 @@ def draw_scaled_axes(img, axis_vecs, axis_scales, origin, cam_mtx):
     cv2.line(img, tuple(axis_points[3].ravel()), tuple(axis_points[0].ravel()), (0, 0, 255), 3)
 
 METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/'
-RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_119_2/']
+RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_128_nocrop/']
 #                        METASHAPE_OUTPUT_BASE + 'gopro_118/',
 #                        METASHAPE_OUTPUT_BASE + 'gopro_123/',
 #                        METASHAPE_OUTPUT_BASE + 'gopro_124/',
@@ -63,8 +61,8 @@ model_paths = [str(path) for path in pathlib.Path(MODEL_PATH).glob('*.pth')]
 model_paths.sort()
 cfg.MODEL.WEIGHTS = os.path.join(model_paths[-1])
 
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.4
-cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.0
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
+cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 cfg.TEST.DETECTIONS_PER_IMAGE = 1000
 cfg.TEST.AUG.ENABLED = False
 cfg.TEST.AUG.MIN_SIZES = (400, 500, 600, 700, 800, 900, 1000, 1100, 1200)
@@ -116,16 +114,19 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
         chunk.shapes.crs = Metashape.CoordinateSystem("EPSG::4326")
     shapes = chunk.shapes.shapes
     shapes_crs = chunk.shapes.crs
-    prediction_shapegroup = chunk.shapes.addGroup()
-    prediction_shapegroup.color = (255, 255, 100, 255)
-    prediction_shapegroup.label = "Predictions_" + datetime.now().strftime("%d%m%y_%H%M")
-    prediction_shapegroup.enabled = False
     # chunk_marker_dict = {v.key: v.position for v in chunk.markers}
     rope_lines = [shape for shape in shapes if shape.geometry.type == Metashape.Geometry.Type.LineStringType]
     has_roperefs = len(rope_lines) > 0
     rope_lines_chunk = [np.array(line.geometry.coordinates) for line in rope_lines] if len(rope_lines) else [None]
     ref_line = rope_lines_chunk[0]
 
+    if chunk.model is None:
+        chunk.buildModel()
+        doc.save()
+
+    prediction_geometries = []
+    prediction_markers = []
+    prediction_labels = []
     for cam in tqdm(cameras[3::1][:CAM_IDX_LIMIT]):
         if cam.transform is None:
             continue
@@ -213,15 +214,16 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                 else:
                     within_transect = True
                 if within_transect:
-                    new_shape = chunk.shapes.addShape()
-                    new_shape.group = prediction_shapegroup
-                    new_shape.label = "scallop_{}".format(round(score.item(), 2))
-                    new_shape.geometry.type = Metashape.Geometry.Type.PolygonType
+                    scallop_center_cam = scallop_poly_cam.mean(axis=1)
+                    cam_center_offset_cos = scallop_center_cam[2] / np.linalg.norm(scallop_center_cam)
+                    cam_center_offset_cos = -1 if np.isnan(cam_center_offset_cos) else cam_center_offset_cos
                     polygon = []
                     for pnt in scallop_polygon_chunk.T:
                         pnt_wrld = shapes_crs.project(chunk_transform.mulp(Metashape.Vector(pnt)))
                         polygon.append(pnt_wrld)
-                    new_shape.geometry = Metashape.Geometry.Polygon(polygon)
+                    prediction_geometries.append(Polygon(polygon))
+                    prediction_markers.append(Point(np.mean(polygon, axis=0)))
+                    prediction_labels.append(str({"label": "live", "conf": round(score.item(), 2), "cntr_cos": round(cam_center_offset_cos, 2)}))
 
                 if IMSHOW and scallop_pnts_cam.shape[1] > 1:
                     pc_vecs, pc_lengths, center_pnt = spf.pca(scallop_pnts_cam.T)
@@ -258,16 +260,20 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
 
     #doc.save()
     shapes_fn = RECON_DIR+'Pred_' + datetime.now().strftime("%d%m%y_%H%M")
-    chunk.exportShapes(shapes_fn + '.gpkg')
+    shapes_fn_3d = shapes_fn + '_3D.gpkg'
+    gdf_3D = gpd.GeoDataFrame({'geometry': prediction_geometries, 'NAME': prediction_labels}, geometry='geometry', crs=shapes_crs.name)
+    gdf_3D.to_file(shapes_fn_3d)
+    markers_fn_3d = shapes_fn + '_3D_markers.gpkg'
+    gdf_3D = gpd.GeoDataFrame({'geometry': prediction_markers, 'NAME': prediction_labels}, geometry='geometry', crs=shapes_crs.name)
+    gdf_3D.to_file(markers_fn_3d)
 
-    if SAVE_SHAPES_2D:
-        # Convert shapes to 2D
-        gdf = gpd.read_file(shapes_fn+'.gpkg')
-        new_geo = []
-        for polygon in gdf.geometry:
-            if polygon.has_z:
-                assert polygon.geom_type == 'Polygon'
-                lines = [xy[:2] for xy in list(polygon.exterior.coords)]
-                new_geo.append(Polygon(lines))
-        gdf.geometry = new_geo
-        gdf.to_file(shapes_fn + '_2D.gpkg')
+    # Save shapes in 2D also
+    gdf = gpd.read_file(shapes_fn_3d)
+    new_geo = []
+    for polygon in gdf.geometry:
+        if polygon.has_z:
+            assert polygon.geom_type == 'Polygon'
+            lines = [xy[:2] for xy in list(polygon.exterior.coords)]
+            new_geo.append(Polygon(lines))
+    gdf.geometry = new_geo
+    gdf.to_file(shapes_fn + '_2D.gpkg')

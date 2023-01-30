@@ -59,7 +59,6 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
             chunk.importShapes(shape_file)
             lbl = shape_file.split('/')[-1].split('.')[0]
             chunk.shapes.groups[-1].label = lbl
-    doc.save()
 
     chunk_scale = chunk.transform.scale
     print("Chunk scale: {}".format(chunk_scale))
