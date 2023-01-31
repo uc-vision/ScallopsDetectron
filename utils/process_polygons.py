@@ -1,9 +1,10 @@
 import geopandas as gpd
+import pandas as pd
 import rasterio
 from shapely.geometry import Polygon, LineString, Point
 import glob
 import numpy as np
-from utils import polygon_functions as spf, geo_utils
+from utils import polygon_functions as spf, geo_utils, file_utils
 import math
 from tqdm import tqdm
 
@@ -11,6 +12,7 @@ from tqdm import tqdm
 HOME_DIR = '/local'  # /home/tim
 RECON_DIR = HOME_DIR + '/Dropbox/NIWA_UC/January_2021/Station_3_Grid/'
 
+ANNS_ONLY = False
 SHOW_PLT = False
 if SHOW_PLT:
     import matplotlib.pyplot as plt
@@ -49,18 +51,20 @@ def main():
     dem_tif = rasterio.open(RECON_DIR + 'tiffs/dem_.tif')
     print(dem_tif.crs)
 
+    print("Extracting shape layers from viewer file...")
+    file_utils.extract_vpz_shapes(RECON_DIR)
+
     shape_files = glob.glob(RECON_DIR + 'gpkg_files/*.gpkg')
-    print(shape_files)
     for sf in shape_files:
-        if not any(k in sf for k in ['Pred', 'Ann']) or any(k in sf for k in ['filt', 'proc', 'ref', '2D']):
+        label = sf.split('/')[-1].split('.')[0]
+        if not any(k in label for k in ['Pred', 'Ann']) or any(k in label for k in ['filt', 'proc', 'ref', '2D']):
             continue
-        fn = sf.split('/')[-1].split('.')[0]
-        print(fn)
+        if 'line' in label.lower() or (ANNS_ONLY and 'Pred' in label):
+            continue
         gdf = gpd.read_file(sf)
+        print(label)
         print(gdf.crs)
         names = []
-        confs = []
-        polygons = []
         width_lines_local = []
         datum = gdf.geometry[0].exterior.coords[0]
         for name, polygon in tqdm(zip(gdf.NAME, gdf.geometry)):
@@ -84,25 +88,21 @@ def main():
                 print('Invalid polygon: {}'.format(name))
             if name and name[0] == '{':
                 properties = eval(name)
-                score = float(properties['conf']) * float(properties['cntr_cos'])
+                properties['score'] = float(properties['conf']) * float(properties['cntr_cos'])
             else:
-                score = 1.0
-                properties = {'label': 'Pred'} if 'Pred' in fn else {'label': 'live_polygon_ann'}
+                properties = {'label': label, 'score': 1.0}
 
             scallop_int_pnts_local = geo_utils.convert_gps2local(datum, scallop_int_pnts)
 
             eig_vecs, eig_vals, cntr = spf.pca(scallop_int_pnts_local)
             eig_vecs[:, 2] *= -1    # flip Eigen frame to right-handed
             x_extent_line = cloud_x_extent_line(scallop_int_pnts_local, eig_vecs, cntr)
-
             width_3D = np.linalg.norm(x_extent_line[1] - x_extent_line[0])
             properties['W_3D'] = round(width_3D, 4)
 
-            if score > 0.85:
-                polygons.append(scallop_int_pnts)
+            if properties['score'] > 0.85:
                 width_lines_local.append(x_extent_line)
                 names.append(str(properties))
-                confs.append(score)
 
             if SHOW_PLT:
                 fig = plt.figure(figsize=(10, 10))
@@ -115,6 +115,7 @@ def main():
                 plot_axes(ax, cntr, eig_vecs)
                 ax.scatter3D(scallop_int_pnts_local[:, 0], scallop_int_pnts_local[:, 1], scallop_int_pnts_local[:, 2], marker='.')
                 plt.show()
+
                 # fig.canvas.draw()
                 # img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
                 # img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))[:, :, ::-1]
@@ -124,31 +125,45 @@ def main():
         # Save raw 3D prediction lines
         linestrings_gps = [LineString(geo_utils.convert_local2gps(datum, l)) for l in width_lines_local]
         gdf_3D = gpd.GeoDataFrame({'geometry': linestrings_gps, 'NAME': names}, geometry='geometry', crs=gdf.crs)
-        gdf_3D.to_file(RECON_DIR + 'gpkg_files/' + '_'.join(fn.split(' ')) + '_proc_3D' + '.gpkg')
+        gdf_3D.to_file(RECON_DIR + 'gpkg_files/' + '_'.join(label.split(' ')) + '_proc_3D' + '.gpkg')
 
         # Save raw 2D prediction lines
         linestrings_gps_2D = [LineString([xy[:2] for xy in list(line.coords)]) for line in linestrings_gps]
         gdf_2D = gpd.GeoDataFrame({'geometry': linestrings_gps_2D, 'NAME': names}, geometry='geometry', crs=gdf.crs)
-        gdf_2D.to_file(RECON_DIR + 'gpkg_files/' + '_'.join(fn.split(' ')) + '_proc_2D' + '.gpkg')
+        shapes_fp_2D = RECON_DIR + 'gpkg_files/' + '_'.join(label.split(' ')) + '_proc_2D' + '.gpkg'
+        gdf_2D.to_file(shapes_fp_2D)
 
         # Skip non prediction files as these won't have multiple overlapping predictions
-        if 'Pred' in fn:
+        if not 'Pred' in label:
+            print("Adding processed width lines to vpz...")
+            file_utils.append_vpz_shapes(RECON_DIR, [shapes_fp_2D])
             continue
 
+        print("Clustering polygons...")
         predline_clusters, labels = spf.polygon_rnn_clustering(width_lines_local, names)
+        print("{} Clusters found".format(len(predline_clusters)))
         filtered_lines = []
         filtered_labels = []
         for lines, labels in zip(predline_clusters, labels):
             lengths = []
+            scores = []
             for label in labels:
                 lengths.append(eval(label)['W_3D'])
+                scores.append(eval(label)['score'])
             avg_length = round(np.array(lengths).mean(), 4)
+            avg_score = round(np.array(scores).mean(), 4)
             filtered_lines.append(np.array(lines[0], dtype=float))
-            filtered_labels.append(str({'label': 'live', 'W_3D': avg_length}))
+            filtered_labels.append(str({'label': 'live_pred_flt', 'W_3D': avg_length, 'score': avg_score}))
 
+        # Save filtered 3D prediction lines
         linestrings_gps = [LineString(geo_utils.convert_local2gps(datum, l)) for l in filtered_lines]
         gdf_3D_filt = gpd.GeoDataFrame({'geometry': linestrings_gps, 'NAME': filtered_labels}, geometry='geometry', crs=gdf.crs)
-        gdf_3D_filt.to_file(RECON_DIR + 'gpkg_files/' + '_'.join(fn.split(' ')) + '_proc_filt' + '.gpkg')
+        gdf_3D_filt.to_file(RECON_DIR + 'gpkg_files/' + '_'.join(label.split(' ')) + '_proc_filt_3D' + '.gpkg')
+
+        # Save filtered 2D prediction lines
+        linestrings_gps_2D = [LineString([xy[:2] for xy in list(line.coords)]) for line in linestrings_gps]
+        gdf_3D_filt = gpd.GeoDataFrame({'geometry': linestrings_gps_2D, 'NAME': filtered_labels}, geometry='geometry', crs=gdf.crs)
+        gdf_3D_filt.to_file(RECON_DIR + 'gpkg_files/' + '_'.join(label.split(' ')) + '_proc_filt_2D' + '.gpkg')
 
         # print("Filtering {} polygons...".format(len(polygons)))
         # scallop_polygons, invalid_polygons = spf.filter_polygon_detections(list(zip(polygons, confs)))
@@ -172,6 +187,7 @@ def main():
         # scallop_sizes = spf.calc_cluster_widths(polygon_clusters, mode='max')
         #
         # print(scallop_sizes)
+
 
 if __name__ == '__main__':
     main()

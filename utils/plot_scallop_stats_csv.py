@@ -14,6 +14,7 @@ if not pathlib.Path(STATION_DIR + 'plots').exists():
 
 SHOW_PLOTS = True
 
+NORMALISE_HIST = True
 NBINS = 60
 
 MATCH_DIST_THRESH = 0.1
@@ -35,7 +36,7 @@ def main():
     print(shape_files)
     for sf in shape_files:
         fn = sf.split('/')[-1].split('.')[0]
-        if not (all(k in fn for k in ['Pred', 'filt']) or all(k in fn for k in ['Ann', 'proc_3D'])):
+        if not (all(k in fn for k in ['Pred', 'filt']) or all(k in fn for k in ['Ann', 'proc_3D'])) or 'Tagged' in fn:
             continue
         print(fn)
         gdf = gpd.read_file(sf)
@@ -51,24 +52,21 @@ def main():
             if line_pnts_gps.shape[0] != 2:
                 print("Invalid line detected!")
             scallop_center_gps = np.mean(line_pnts_gps[:2], axis=0)
-            length = float(eval(name)['W_3D'])
+            length = min(float(eval(name)['W_3D']), 0.2)
             labelled_scallop_lengths.append(1000 * length)
             labelled_scallop_centers.append(scallop_center_gps)
         labelled_lengths = np.array(labelled_scallop_lengths)
         labelled_centers_gps = np.array(labelled_scallop_centers)
 
         gdf = gpd.read_file(STATION_DIR + 'gpkg_files/gridref.gpkg')
-        ref_datun_gps = np.array(gdf.geometry[0].coords)
-        ref_vec = geo_utils.convert_gpsvec_m(ref_datun_gps[0, 1], ref_datun_gps[0, 0], ref_datun_gps[1, 1], ref_datun_gps[1, 0])
+        ref_datum_gps = np.array(gdf.geometry[0].coords)
+        ref_vec = geo_utils.convert_gps2local(ref_datum_gps[0], ref_datum_gps[1][None])[0] #geo_utils.convert_gpsvec_m(ref_datum_gps[0, 1], ref_datum_gps[0, 0], ref_datum_gps[1, 1], ref_datum_gps[1, 0])
         ref_vec /= np.linalg.norm(ref_vec) + 1e-16
         theta = np.arctan2((ref_vec[0] - ref_vec[1]), (ref_vec[0] + ref_vec[1]))
-        rot = np.array([[np.cos(theta), -np.sin(theta)],
-                        [np.sin(theta), np.cos(theta)]])
-        labelled_centers_xy = []
-        for coord_gps in labelled_centers_gps:
-            xypos = geo_utils.convert_gpsvec_m(ref_datun_gps[0, 1], ref_datun_gps[0, 0], coord_gps[1], coord_gps[0])
-            labelled_centers_xy.append(xypos)
-        labelled_centers_xy = np.array(labelled_centers_xy)
+        rot = np.array([[np.cos(theta), -np.sin(theta), 0],
+                        [np.sin(theta), np.cos(theta), 0],
+                        [0, 0, 1]])
+        labelled_centers_xy = geo_utils.convert_gps2local(ref_datum_gps[0], labelled_centers_gps)
         labelled_centers = np.matmul(rot, labelled_centers_xy.T).T
 
         lengths = np.array(grid_sheet['lgth'])[np.where(grid_sheet['station_no'] == STATION_NO)]
@@ -80,7 +78,7 @@ def main():
         matched_lengths_diver = []
         matched_lengths_ortho = []
         for diver_center, diver_length in zip(positions, diver_lengths):
-            dists = np.linalg.norm(labelled_centers - diver_center, axis=1)
+            dists = np.linalg.norm(labelled_centers[:, :2] - diver_center, axis=1)
             closest_idx = np.argmin(dists)
             dist = dists[closest_idx]
             if dist < MATCH_DIST_THRESH:
@@ -96,8 +94,8 @@ def main():
         plt.title(fn + " Size Distribution (freq. vs size [mm])")
         plt.ylabel("Frequency")
         plt.xlabel("Scallop Width [mm]")
-        plt.hist(diver_lengths, bins=NBINS, alpha=0.7)
-        plt.hist(labelled_scallop_lengths, bins=NBINS, alpha=0.7)
+        plt.hist(diver_lengths, bins=NBINS, alpha=0.7, density=NORMALISE_HIST)
+        plt.hist(labelled_scallop_lengths, bins=NBINS, alpha=0.7, density=NORMALISE_HIST)
         plt.figtext(0.15, 0.76, "Total diver count: {}".format(len(diver_lengths)))
         plt.figtext(0.15, 0.73, "Total ortho count: {}".format(len(labelled_scallop_lengths)))
         plt.grid(True)
@@ -109,7 +107,7 @@ def main():
         plt.title(fn + " Size Distribution (freq. vs size [mm])")
         plt.ylabel("Frequency")
         plt.xlabel("Scallop Width [mm]")
-        plt.hist([diver_lengths, labelled_scallop_lengths], bins=NBINS, alpha=0.7)
+        plt.hist([diver_lengths, labelled_scallop_lengths], bins=NBINS, alpha=0.7, density=NORMALISE_HIST)
         plt.figtext(0.15, 0.76, "Total diver count: {}".format(len(diver_lengths)))
         plt.figtext(0.15, 0.73, "Total ortho count: {}".format(len(labelled_scallop_lengths)))
         plt.grid(True)

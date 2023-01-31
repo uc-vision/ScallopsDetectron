@@ -1,9 +1,76 @@
-import os
+import os, sys, io, shutil
 import pickle
 import pathlib
 from utils import dvl_data_utils
 from matplotlib import pyplot as plt
 import numpy as np
+import zipfile
+import glob
+import xml.etree.ElementTree as ET
+import geopandas as gpd
+
+def open_archive(dir, mode="r"):
+    vpz_files = glob.glob(dir + '*.vpz')
+    assert len(vpz_files) == 1
+    return zipfile.ZipFile(vpz_files[0], mode)
+
+def open_vpz_r(dir, mode="r"):
+    archive = open_archive(dir, mode)
+    xml_file = [f for f in archive.namelist() if ".xml" in f]
+    assert len(xml_file) == 1
+    root = ET.fromstring(archive.read(xml_file[0]))
+    return root, archive
+
+def append_vpz_shapes(vpz_dir, shapes_fp_l):
+    xml_root, archive_r = open_vpz_r(vpz_dir, "r")
+    labels = [fp.split('/')[-1].split('.')[0] for fp in shapes_fp_l]
+    tmp_archive_fp = vpz_dir+'.tmp.vpz'
+    archive_w = zipfile.ZipFile(tmp_archive_fp, 'w')
+    for file in archive_r.filelist:
+        if any(k in file.filename for k in ['.xml']+labels):
+            continue
+        archive_w.writestr(file.filename, archive_r.read(file.filename))
+    sites = xml_root.find('sites')
+    assert len(sites) == 1
+    layers = sites[0].find('layers')
+    for layer in list(layers):
+        if layer.get('label') in labels:
+            print(layer.get('label'))
+            layers.remove(layer)
+    for label, fp in list(zip(labels, shapes_fp_l)):
+        archive_w.write(fp, label+'.gpkg')
+        content='''\
+                <layer type="shapes" label="{}" enabled="true">
+                    <data path="{}"/>
+                </layer>
+                '''.format(label, label+'.gpkg')
+        layers.append(ET.XML(content))
+    archive_w.writestr('doc.xml', ET.tostring(xml_root))
+    old_archive_fp = archive_r.fp.name
+    archive_w.close()
+    archive_r.close()
+    shutil.move(tmp_archive_fp, old_archive_fp)
+
+def extract_vpz_shapes(vpz_dir):
+    xml_root, archive = open_vpz_r(vpz_dir)
+    archive.extractall(vpz_dir+'gpkg_files/', members=[f for f in archive.namelist() if ".gpkg" in f])
+    sites = xml_root.find('sites')
+    assert len(sites) == 1
+    xml_shapes_layers = [layer for layer in sites[0].find('layers') if layer.get('type') == 'shapes' and layer.find('data') is not None]
+    for layer in xml_shapes_layers:
+        fn_nospace = '_'.join(layer.get('label').split(' '))
+        os.rename(vpz_dir+'gpkg_files/'+layer.find('data').get('path'), vpz_dir+'gpkg_files/'+fn_nospace+'.gpkg')
+
+def get_vpz_dataset_paths(vpz_dir):
+    vpz_files = glob.glob(vpz_dir + '*.vpz')
+    assert len(vpz_files) == 1
+    archive = zipfile.ZipFile(vpz_files[0])
+    zipped_shape_files = [f for f in archive.namelist() if ".gpkg" in f]
+    file_paths = []
+    for zipped_fn in zipped_shape_files:
+        file_paths.append('zip://' + 'Station_3_grid.vpz' + '!' + zipped_fn) # vpz_files[0]
+        print(file_paths[-1])
+    return file_paths
 
 def get_impath_tuples(dir):
     dirs = list(pathlib.Path(dir).glob('**'))
