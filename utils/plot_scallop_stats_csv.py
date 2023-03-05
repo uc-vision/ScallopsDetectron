@@ -38,6 +38,8 @@ def main():
         fn = sf.split('/')[-1].split('.')[0]
         if not (all(k in fn for k in ['Pred', 'filt']) or all(k in fn for k in ['Ann', 'proc_3D'])) or 'Tagged' in fn:
             continue
+        if '2D' in fn:
+            continue
         print(fn)
         gdf = gpd.read_file(sf)
         print(gdf.crs)
@@ -52,7 +54,7 @@ def main():
             if line_pnts_gps.shape[0] != 2:
                 print("Invalid line detected!")
             scallop_center_gps = np.mean(line_pnts_gps[:2], axis=0)
-            length = min(float(eval(name)['W_3D']), 0.2)
+            length = max(0.03, min(float(eval(name)['W_3D']), 0.2))
             labelled_scallop_lengths.append(1000 * length)
             labelled_scallop_centers.append(scallop_center_gps)
         labelled_lengths = np.array(labelled_scallop_lengths)

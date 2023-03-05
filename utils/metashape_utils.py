@@ -172,7 +172,6 @@ def init_cam_poses_pkl(chunk, pkl_telem, origin, cam_offsets):
 # if __name__ == '__main__':
 #     main()
 
-
 # if False:
 #     import vtk
 # CAM_DISPLAY_LIM = 200

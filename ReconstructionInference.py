@@ -188,8 +188,8 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                 mask_np = mask.numpy()[:, :, None].astype(np.uint8)
                 contours, hierarchy = cv2.findContours(mask_np, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
                 scallop_polygon = contours[np.argmax([cv2.contourArea(cnt) for cnt in contours])][:, 0]
-                # Clip number of vertices in polygon to 25->50
-                scallop_polygon = scallop_polygon[::(1 + scallop_polygon.shape[0] // 30)]
+                # Clip number of vertices in polygon to 30->60
+                scallop_polygon = scallop_polygon[::(1 + scallop_polygon.shape[0] // 60)]
                 if IMSHOW:
                     cv2.circle(out_image, (scallop_centre[0], scallop_centre[1]), int(radius), color=(0, 255, 0), thickness=2)
                     cv2.drawContours(out_image, contours, contourIdx=-1, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)

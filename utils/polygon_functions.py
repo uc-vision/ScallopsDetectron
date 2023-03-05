@@ -88,26 +88,34 @@ def calc_cluster_widths(polygon_clusters, mode=None):
         cluster_widths_l.append(cluster_poly_width)
     return cluster_widths_l
 
+def get_next_seed_index(mask_arr):
+    for i, val in enumerate(mask_arr):
+        if val == True:
+            return i
+
+def rnn_clustering(point_groups):
+    unclustered_mask = np.ones((len(point_groups),)).astype(np.bool)
+    neighbourhood_mask = unclustered_mask.copy()
+    centers = np.array([np.mean(poly, axis=0) for poly in point_groups])
+    cluster_indexes = []
+    while any(unclustered_mask):
+        seed_center = centers[get_next_seed_index(unclustered_mask)]
+        for i in range(2):
+            unclst_dists = np.linalg.norm(centers - seed_center, axis=1)
+            neighbourhood_mask = (unclst_dists < RNN_DISTANCE) * unclustered_mask
+            seed_center = np.mean(centers[neighbourhood_mask], axis=0)
+        neighbour_idxs = np.where(neighbourhood_mask)[0]
+        cluster_indexes.append(neighbour_idxs)
+        unclustered_mask[neighbour_idxs] = False
+    return cluster_indexes
+
 def polygon_rnn_clustering(polygons, labels):
-    unclustered_polygons = np.array(polygons, dtype=object).copy()
-    unclustered_labels = np.array(labels, dtype=object).copy()
-    unclustered_centers = np.array([np.mean(poly, axis=0) for poly in polygons])
+    cluster_idxs = rnn_clustering(polygons)
     polygon_clusters = []
     clustered_labels = []
-    while unclustered_centers.shape[0]:
-        seed_center = unclustered_centers[0]
-        unclst_dists = np.linalg.norm(unclustered_centers - seed_center, axis=1)
-        neighbour_pnts = unclustered_centers[np.where(unclst_dists < RNN_DISTANCE)]
-        new_center = np.mean(neighbour_pnts, axis=0)
-        unclst_dists = np.linalg.norm(unclustered_centers - new_center, axis=1)
-        neighbour_idxs = np.where(unclst_dists < RNN_DISTANCE)
-        cluster_polygons = unclustered_polygons[neighbour_idxs]
-        cluster_labels = unclustered_labels[neighbour_idxs]
-        polygon_clusters.append(cluster_polygons)
-        clustered_labels.append(cluster_labels)
-        unclustered_polygons = np.delete(unclustered_polygons, neighbour_idxs, axis=0)
-        unclustered_centers = np.delete(unclustered_centers, neighbour_idxs, axis=0)
-        unclustered_labels = np.delete(unclustered_labels, neighbour_idxs, axis=0)
+    for neighbour_idxs in cluster_idxs:
+        polygon_clusters.append([polygons[idx] for idx in neighbour_idxs])
+        clustered_labels.append([labels[idx] for idx in neighbour_idxs])
     return polygon_clusters, clustered_labels
 
     # K-means clustering with class reduction if centers too close

@@ -1,4 +1,4 @@
-import os, sys, io, shutil
+import os, sys, io, shutil, re
 import pickle
 import pathlib
 from utils import dvl_data_utils
@@ -8,6 +8,10 @@ import zipfile
 import glob
 import xml.etree.ElementTree as ET
 import geopandas as gpd
+
+def del_if_exists(path):
+    if os.path.exists(path):
+        os.remove(path)
 
 def open_archive(dir, mode="r"):
     vpz_files = glob.glob(dir + '*.vpz')
@@ -21,30 +25,50 @@ def open_vpz_r(dir, mode="r"):
     root = ET.fromstring(archive.read(xml_file[0]))
     return root, archive
 
-def append_vpz_shapes(vpz_dir, shapes_fp_l):
+def get_xml_layers(xml_root):
+    sites = xml_root.find('sites')
+    assert len(sites) == 1
+    return sites[0].find('layers')
+
+def append_vpz_shapes(vpz_dir, shapes_fp_l, col_rgb_l=None):
     xml_root, archive_r = open_vpz_r(vpz_dir, "r")
     labels = [fp.split('/')[-1].split('.')[0] for fp in shapes_fp_l]
     tmp_archive_fp = vpz_dir+'.tmp.vpz'
     archive_w = zipfile.ZipFile(tmp_archive_fp, 'w')
+    layers = get_xml_layers(xml_root)
+    # Copy all files which are not xml or gpkg to new archive
     for file in archive_r.filelist:
-        if any(k in file.filename for k in ['.xml']+labels):
-            continue
-        archive_w.writestr(file.filename, archive_r.read(file.filename))
-    sites = xml_root.find('sites')
-    assert len(sites) == 1
-    layers = sites[0].find('layers')
+        if not any(k in file.filename for k in ['.xml', '.gpkg']):
+            archive_w.writestr(file.filename, archive_r.read(file.filename))
+    # copy over all shape files not being overwritten to new archive,
+    # delete xml entries of files which are being overwritten
+    sf_idx = 0
     for layer in list(layers):
+        if not layer.get('type') == 'shapes':
+            continue
+        shp_fp = layer.find('data').get('path')
         if layer.get('label') in labels:
-            print(layer.get('label'))
             layers.remove(layer)
-    for label, fp in list(zip(labels, shapes_fp_l)):
-        archive_w.write(fp, label+'.gpkg')
+        else:
+            new_fn = 'shapes{}.gpkg'.format(sf_idx)
+            archive_w.writestr(new_fn, archive_r.read(shp_fp))
+            layer.find('data').set('path', new_fn)
+            sf_idx += 1
+    # Append updated shapes to vpz archive and xml file
+    cols_hex = ['#ffffff'] * len(shapes_fp_l) if col_rgb_l is None else ['#%02x%02x%02x' % c for c in col_rgb_l]
+    for label, fp, col in list(zip(labels, shapes_fp_l, cols_hex)):
+        new_fn = 'shapes{}.gpkg'.format(sf_idx)
+        archive_w.write(fp, new_fn)
         content='''\
                 <layer type="shapes" label="{}" enabled="true">
                     <data path="{}"/>
+                    <meta>
+                        <property name="style/color" value="{}"/>
+                    </meta>
                 </layer>
-                '''.format(label, label+'.gpkg')
+                '''.format(label, new_fn, col)
         layers.append(ET.XML(content))
+        sf_idx += 1
     archive_w.writestr('doc.xml', ET.tostring(xml_root))
     old_archive_fp = archive_r.fp.name
     archive_w.close()
@@ -53,13 +77,15 @@ def append_vpz_shapes(vpz_dir, shapes_fp_l):
 
 def extract_vpz_shapes(vpz_dir):
     xml_root, archive = open_vpz_r(vpz_dir)
-    archive.extractall(vpz_dir+'gpkg_files/', members=[f for f in archive.namelist() if ".gpkg" in f])
-    sites = xml_root.find('sites')
-    assert len(sites) == 1
-    xml_shapes_layers = [layer for layer in sites[0].find('layers') if layer.get('type') == 'shapes' and layer.find('data') is not None]
+    tmpshps_dir = vpz_dir+'gpkg_files/.tmpshps/'
+    os.mkdir(tmpshps_dir)
+    archive.extractall(tmpshps_dir, members=[f for f in archive.namelist() if ".gpkg" in f])
+    layers = get_xml_layers(xml_root)
+    xml_shapes_layers = [layer for layer in layers if layer.get('type') == 'shapes' and layer.find('data') is not None]
     for layer in xml_shapes_layers:
         fn_nospace = '_'.join(layer.get('label').split(' '))
-        os.rename(vpz_dir+'gpkg_files/'+layer.find('data').get('path'), vpz_dir+'gpkg_files/'+fn_nospace+'.gpkg')
+        shutil.move(tmpshps_dir+layer.find('data').get('path'), vpz_dir+'gpkg_files/'+fn_nospace+'.gpkg')
+    shutil.rmtree(tmpshps_dir)
 
 def get_vpz_dataset_paths(vpz_dir):
     vpz_files = glob.glob(vpz_dir + '*.vpz')

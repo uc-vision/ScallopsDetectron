@@ -10,7 +10,9 @@ HOME_DIR = '/local'  # /home/tim
 RECON_DIR = HOME_DIR + '/Dropbox/NIWA_UC/January_2021/Station_3_Grid/'
 
 def main():
-    dem_tif = rasterio.open(RECON_DIR + 'tiffs/dem_.tif')
+    tiff_files = glob.glob(RECON_DIR + 'tiffs/dem_*')
+    assert len(tiff_files) == 1
+    dem_tif = rasterio.open(tiff_files[0])
     print(dem_tif.crs)
 
     print("Extracting shape layers from viewer file...")
@@ -47,12 +49,17 @@ def main():
             new_geom_2D.append(LineString(line_pnts[:, :2]))
         gdf_2D = gpd.GeoDataFrame({'geometry': new_geom_2D, 'NAME': new_labels_2D}, geometry='geometry', crs=gdf.crs)
         shapes_fp_2D = RECON_DIR + 'gpkg_files/' + '_'.join(fn.split(' ')) + '_proc_2D' + '.gpkg'
+        file_utils.del_if_exists(shapes_fp_2D)
         gdf_2D.to_file(shapes_fp_2D)
         gdf_3D = gpd.GeoDataFrame({'geometry': new_geom_3D, 'NAME': new_labels_3D}, geometry='geometry', crs=gdf.crs)
-        gdf_3D.to_file(RECON_DIR + 'gpkg_files/' + '_'.join(fn.split(' ')) + '_proc_3D' + '.gpkg')
+        shapes_fp_3D = RECON_DIR + 'gpkg_files/' + '_'.join(fn.split(' ')) + '_proc_3D' + '.gpkg'
+        file_utils.del_if_exists(shapes_fp_3D)
+        gdf_3D.to_file(shapes_fp_3D)
 
         print("Adding processed width lines to vpz...")
         file_utils.append_vpz_shapes(RECON_DIR, [shapes_fp_2D])
+
+    dem_tif.close()
 
 if __name__ == '__main__':
     main()
