@@ -40,7 +40,7 @@ def draw_scaled_axes(img, axis_vecs, axis_scales, origin, cam_mtx):
     points = np.concatenate([np.multiply(axis_vecs, np.repeat(axis_scales[:, None], 3, axis=1)) +
                              np.repeat(origin[None, :], 3, axis=0), origin[None, :]], axis=0)
     axis_points, _ = cv2.projectPoints(points, np.zeros((1, 3)), np.zeros((1, 3)), cam_mtx, None)
-    axis_points = axis_points.astype(np.int)
+    axis_points = axis_points.astype(int)
     cv2.line(img, tuple(axis_points[3].ravel()), tuple(axis_points[2].ravel()), (255, 0, 0), 3)
     cv2.line(img, tuple(axis_points[3].ravel()), tuple(axis_points[1].ravel()), (0, 255, 0), 3)
     cv2.line(img, tuple(axis_points[3].ravel()), tuple(axis_points[0].ravel()), (0, 0, 255), 3)
@@ -51,6 +51,7 @@ RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_128_nocrop/']
 #                        METASHAPE_OUTPUT_BASE + 'gopro_123/',
 #                        METASHAPE_OUTPUT_BASE + 'gopro_124/',
 #                        METASHAPE_OUTPUT_BASE + 'gopro_125/']
+RECONSTRUCTION_DIRS = ["/csse/research/CVlab/processed_bluerov_data/240714-140552/"]
 
 MODEL_PATH = "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
 
@@ -120,14 +121,14 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
     rope_lines_chunk = [np.array(line.geometry.coordinates) for line in rope_lines] if len(rope_lines) else [None]
     ref_line = rope_lines_chunk[0]
 
-    if chunk.model is None:
-        chunk.buildModel()
-        doc.save()
+    # if chunk.model is None:
+    #     chunk.buildModel()
+    #     doc.save()
 
     prediction_geometries = []
     prediction_markers = []
     prediction_labels = []
-    for cam in tqdm(cameras[3::1][:CAM_IDX_LIMIT]):
+    for cam in tqdm(cameras[:CAM_IDX_LIMIT]):
         if cam.transform is None:
             continue
 
@@ -151,11 +152,13 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
 
         cam_quart = np.array(cam.transform).reshape((4, 4))
 
-        img_depth_ms = chunk.model.renderDepth(cam.transform, cam.sensor.calibration, add_alpha=False)
-        #img_depth_ms = chunk.depth_maps[cam].image()
+        # img_depth_ms = chunk.model.renderDepth(cam.transform, cam.sensor.calibration, add_alpha=False)
+        if cam not in chunk.depth_maps:
+            continue
+        img_depth_ms = chunk.depth_maps[cam].image()
         img_depth_np = np.frombuffer(img_depth_ms.tostring(), dtype=np.float32).reshape((img_depth_ms.height, img_depth_ms.width, 1))
         img_depth_np = cv2.resize(img_depth_np, (rs_shape[1], rs_shape[0]))
-        img_depth_np = cv2.blur(img_depth_np, ksize=(51, 51))
+        # img_depth_np = cv2.blur(img_depth_np, ksize=(51, 51))
 
         # img_depth_display = np.repeat(img_depth_np[:, :, None], 3, axis=2) - np.min(img_depth_np)
         # img_depth_display /= np.max(img_depth_display) + 1e-9
@@ -196,6 +199,9 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
 
                 # Undistort polygon vertices
                 vert_elavations = img_depth_np[scallop_polygon[:, 1], scallop_polygon[:, 0]]
+                # valid_indices = np.where(vert_elavations != 0.0)
+                # vert_elavations = vert_elavations[valid_indices]
+                # scallop_polygon = scallop_polygon[valid_indices]
                 pxpoly_ud = spf.undistort_pixels(scallop_polygon, camMtx, camDist)
                 scallop_poly_cam = CamPixToChunkPnt(pxpoly_ud.T, camMtx)
                 scallop_poly_cam = scallop_poly_cam * vert_elavations.T
@@ -215,7 +221,7 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                     within_transect = True
                 if within_transect:
                     scallop_center_cam = scallop_poly_cam.mean(axis=1)
-                    cam_center_offset_cos = scallop_center_cam[2] / np.linalg.norm(scallop_center_cam)
+                    cam_center_offset_cos = scallop_center_cam[2] / (np.linalg.norm(scallop_center_cam)+1e-32)
                     cam_center_offset_cos = -1 if np.isnan(cam_center_offset_cos) else cam_center_offset_cos
                     polygon = []
                     for pnt in scallop_polygon_chunk.T:
@@ -237,7 +243,7 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, txt_col, 4, cv2.LINE_AA)
                     cv2.putText(out_image, str(round(width_scallop_circle, 3)), tuple(scallop_centre + np.array([20, 30])),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, txt_col, 4, cv2.LINE_AA)
-                    draw_scaled_axes(out_image, pc_vecs, pc_lengths, center_pnt, camMtx)
+                    # draw_scaled_axes(out_image, pc_vecs, pc_lengths, center_pnt, camMtx)
 
                 if VTK:
                     pnt_cld.setPoints(scallop_pnts_cam.T - center_pnt, np.array([1, 1, 1] * scallop_pnts_cam.shape[1]).T)
@@ -248,7 +254,7 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                     iren.Start()
 
         if IMSHOW:
-            #print("Image inference time: {}s".format(time.time()-start_time))
+            # print("Image inference time: {}s".format(time.time()-start_time))
             cv2.rectangle(out_image, edge_box[:2], edge_box[2:], (0, 0, 255), thickness=1)
             cv2.imshow("Input image", img_rs)
             cv2.imshow("Labelled sub image", out_image)

@@ -12,7 +12,7 @@ from utils import maskrcnn_setup, train_net, augmentations as A
 
 WRITE = False
 RESUME = False
-SHOW_TRAINING_IMGS = False
+SHOW_TRAINING_IMGS = True
 
 BASE_DIR = '/local/'#'/scratch/data/tkr25/'  #
 NUM_GPUS = 1
