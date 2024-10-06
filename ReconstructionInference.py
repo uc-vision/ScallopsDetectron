@@ -21,6 +21,8 @@ UD_ALPHA = 0
 IMG_RS_MOD = 2
 CAM_IDX_LIMIT = -1
 
+MASK_PNTS_SUB = 200
+
 SCALE_MUL = 1.0
 LINE_DIST_THRESH = 1.0
 EDGE_LIMIT_PIX = 200 // IMG_RS_MOD
@@ -29,6 +31,11 @@ OUTLIER_RADIUS = 0.1
 IMSHOW = False
 VTK = False
 WAITKEY = 0
+
+
+import yappi
+yappi.start()
+
 
 def CamToChunk(pnts_cam, cam_quart):
     return np.matmul(cam_quart, np.vstack([pnts_cam, np.ones((1, pnts_cam.shape[1]))]))[:3, :]
@@ -192,29 +199,39 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                 contours, hierarchy = cv2.findContours(mask_np, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
                 scallop_polygon = contours[np.argmax([cv2.contourArea(cnt) for cnt in contours])][:, 0]
                 # Clip number of vertices in polygon to 30->60
-                scallop_polygon = scallop_polygon[::(1 + scallop_polygon.shape[0] // 60)]
+                scallop_polygon = scallop_polygon[::(1 + scallop_polygon.shape[0] // 100)]
                 if IMSHOW:
                     cv2.circle(out_image, (scallop_centre[0], scallop_centre[1]), int(radius), color=(0, 255, 0), thickness=2)
                     cv2.drawContours(out_image, contours, contourIdx=-1, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
 
                 # Undistort polygon vertices
                 vert_elavations = img_depth_np[scallop_polygon[:, 1], scallop_polygon[:, 0]]
-                # valid_indices = np.where(vert_elavations != 0.0)
-                # vert_elavations = vert_elavations[valid_indices]
-                # scallop_polygon = scallop_polygon[valid_indices]
+                valid_indices = np.where(vert_elavations != 0.0)
+                if len(valid_indices[0]) < 10:
+                    continue
+                vert_elavations = vert_elavations[valid_indices]
+                scallop_polygon = scallop_polygon[valid_indices]
                 pxpoly_ud = spf.undistort_pixels(scallop_polygon, camMtx, camDist)
                 scallop_poly_cam = CamPixToChunkPnt(pxpoly_ud.T, camMtx)
                 scallop_poly_cam = scallop_poly_cam * vert_elavations.T
+                # print(repr(scallop_poly_cam))
 
-                mask_pnts_sub = mask_pnts[::10]
+                num_mask_pixs = len(mask_pnts)
+                if num_mask_pixs < MASK_PNTS_SUB:
+                    continue
+                mask_pnts_mod = max(1, num_mask_pixs // MASK_PNTS_SUB)
+                mask_pnts_sub = mask_pnts[::mask_pnts_mod]
+
                 vert_elavations = img_depth_np[mask_pnts_sub[:, 1], mask_pnts_sub[:, 0]]
                 mask_pnts_ud = spf.undistort_pixels(mask_pnts_sub, camMtx, camDist)
                 scallop_pnts_cam = CamPixToChunkPnt(mask_pnts_sub.T, camMtx)
                 scallop_pnts_cam = scallop_pnts_cam * vert_elavations.T
                 scallop_pnts_cam = spf.remove_outliers(scallop_pnts_cam, OUTLIER_RADIUS / chunk_scale)
-
+                if scallop_pnts_cam.shape[1] < 10:
+                    continue
                 scallop_polygon_chunk = CamToChunk(scallop_poly_cam, cam_quart)
-                scallop_center_chunk = CamToChunk(scallop_pnts_cam, cam_quart).mean(axis=1)
+                scallop_pnts_chunk = CamToChunk(scallop_pnts_cam, cam_quart)
+                scallop_center_chunk = scallop_pnts_chunk.mean(axis=1)
                 if ref_line:
                     within_transect = spf.polyline_dist_thresh(scallop_center_chunk, ref_line, LINE_DIST_THRESH / chunk_scale)
                 else:
@@ -263,6 +280,10 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
             key = cv2.waitKey(WAITKEY)
             if key == ord('q'):
                 exit(0)
+
+    # yappi.get_func_stats().print_all()
+    # yappi.get_thread_stats().print_all()
+    # exit(0)
 
     #doc.save()
     shapes_fn = RECON_DIR+'Pred_' + datetime.now().strftime("%d%m%y_%H%M")

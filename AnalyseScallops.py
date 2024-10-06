@@ -1,6 +1,7 @@
-import Metashape
-print("Metashape version {}".format(Metashape.version))
+# import Metashape
+# print("Metashape version {}".format(Metashape.version))
 from utils import VTKPointCloud as PC, polygon_functions as spf
+from utils import geo_utils
 from matplotlib import pyplot as plt
 import numpy as np
 from tqdm import tqdm
@@ -14,7 +15,8 @@ import geopandas as gpd
 # TODO: weighted confidence function?
 # TODO: outlier removal
 
-RECON_DIR = '/local/ScallopReconstructions/gopro_119_2/'
+
+VPZ_DIR = '/csse/research/CVlab/processed_bluerov_data/240714-140552/'
 
 SAVE_PLT = True
 DISPLAY = False
@@ -27,36 +29,31 @@ SHAPEGROUP_KEY = "Pred"  # "Ann" None
 SCALE_MUL = 1.0
 CLUSTER_CNT_THRESH = 3
 
-doc = Metashape.Document()
-doc.open(RECON_DIR + "recon.psx")
-doc.read_only = False
+shape_file_3D = glob.glob(VPZ_DIR + '*3D.gpkg')
+assert len(shape_file_3D) == 1
+scallops_gpd = gpd.read_file(shape_file_3D[0])
+scallop_polys_gps = []
+for detection in scallops_gpd.itertuples():
+    poly_lonlatz = np.array(detection.geometry.exterior.coords)
+    label = detection.NAME
+    conf = float(eval(label)['conf'])
+    scallop_polys_gps.append([poly_lonlatz, conf])
 
-chunk = doc.chunks[0]
+datum = scallop_polys_gps[0][0][0][:2]
+scallop_polys_local = [[geo_utils.convert_gps2local(datum, p), c] for p, c in scallop_polys_gps]
 
-print("Extracting Shapes...")
-if chunk.shapes is None:
-    chunk.shapes = Metashape.Shapes()
-    chunk.shapes.crs = Metashape.CoordinateSystem("EPSG::4326")
-shapes_crs = chunk.shapes.crs
-chunk_transform = chunk.transform.matrix
+polygons_d = {"detections": scallop_polys_local}
 
-shape_files = glob.glob(RECON_DIR + '*.gpkg')
-for shape_file in shape_files:
-    chunk.importShapes(shape_file)
-    lbl = shape_file.split('/')[-1].split('.')[0]
-    chunk.shapes.groups[-1].label = lbl
-
-chunk_polygons_d = spf.get_chunk_polygons_dict(chunk, key=SHAPEGROUP_KEY, world_crs=True)
-
-for key, polygon_detections in chunk_polygons_d.items():
+for key, polygon_detections in polygons_d.items():
     print("Analysing {}...".format(key))
 
     print("Filtering {} polygons...".format(len(polygon_detections)))
     scallop_polygons, invalid_polygons = spf.filter_polygon_detections(polygon_detections)
+    # scallop_polygons = [p[0] for p in polygon_detections]
     print("Filtered down to {} polygons".format(len(scallop_polygons)))
 
     print("RNN clustering polygons...")
-    polygon_clusters = spf.polygon_rnn_clustering(scallop_polygons)
+    polygon_clusters, labels = spf.polygon_rnn_clustering(scallop_polygons, ["labels"]*len(scallop_polygons))
     print("Num clusters: {}".format(len(polygon_clusters)))
 
     print("Filtering clusters...")
@@ -69,41 +66,18 @@ for key, polygon_detections in chunk_polygons_d.items():
     print("Reducing filtered polygon complexity")
     filtered_polygons = [poly[::(1 + len(poly) // 40)] for poly in filtered_polygons]
 
-    if OUTPUT_SHAPES:
-        print("Saving filtered polygons back to recon...")
-        filtered_shapegroup = chunk.shapes.addGroup()
-        filtered_shapegroup.color = (100, 255, 100, 255)
-        filtered_shapegroup.label = "Filtered_" + '_'.join(key.split('_')[1:])
-        filtered_shapegroup.enabled = False
-        for flt_poly in filtered_polygons:
-            new_shape = chunk.shapes.addShape()
-            new_shape.group = filtered_shapegroup
-            new_shape.label = "scallop_flt" #_{}".format(round(0.01, 2))
-            new_shape.geometry.type = Metashape.Geometry.Type.PolygonType
-            polygon = [shapes_crs.project(Metashape.Vector(pnt)) for pnt in flt_poly]
-            new_shape.geometry = Metashape.Geometry.Polygon(polygon)
-        #doc.save()
-
-        shapes_fn = RECON_DIR+key
-        print(chunk.shapes.groups)
-        chunk.exportShapes(shapes_fn + '_Filtered.gpkg', groups=[len(chunk.shapes.groups)-1])
-
-        if SAVE_SHAPES_2D:
-            # Convert shapes to 2D
-            gdf = gpd.read_file(shapes_fn + '_Filtered.gpkg')
-            new_geo = []
-            for polygon in gdf.geometry:
-                if polygon.has_z:
-                    assert polygon.geom_type == 'Polygon'
-                    lines = [xy[:2] for xy in list(polygon.exterior.coords)]
-                    new_geo.append(Polygon(lines))
-            gdf.geometry = new_geo
-            gdf.to_file(shapes_fn + '_Filtered_2D.gpkg')
+    filtered_polygons = [geo_utils.convert_local2gps(datum, p) for p in filtered_polygons]
 
     print("Calculating cluster sizes...")
     scallop_sizes = spf.calc_cluster_widths(polygon_clusters, mode='max')
 
-    print("Plotting...")
+    if OUTPUT_SHAPES:
+        shapes_fn = VPZ_DIR+key
+
+        geometry = [Polygon(poly[:, :2]) for poly in filtered_polygons]
+        names = [str(round(i, 4)) for i in scallop_sizes]
+        polygons_2d_gpd = gpd.GeoDataFrame({'NAME': names, 'geometry': geometry}, geometry='geometry')
+        polygons_2d_gpd.to_file(shapes_fn + '_Filtered_2D.gpkg')
 
     # fig = plt.figure(1)
     # ax = fig.gca()
@@ -123,18 +97,18 @@ for key, polygon_detections in chunk_polygons_d.items():
     # if SAVE_PLT:
     #     plt.savefig(RECON_DIR + "ScallopSpatialDistImg_{}.jpeg".format(key), dpi=600)
 
-    fig = plt.figure(2)
-    plt.title("Scallop Size Distribution (freq. vs size [cm]) for " + key)
-    plt.ylabel("Frequency")
-    plt.xlabel("Scallop Width [cm]")
-    plt.hist(scallop_sizes, bins=100)
-    plt.figtext(0.15, 0.85, "Total count: {}".format(len(scallop_sizes)))
-    plt.grid(True)
-    fig.set_size_inches(8, 6)
-    if SAVE_PLT:
-        plt.savefig(RECON_DIR + "ScallopSizeDistImg_{}.jpeg".format(key), dpi=600)
-    if DISPLAY:
-        plt.show()
+    # fig = plt.figure(2)
+    # plt.title("Scallop Size Distribution (freq. vs size [cm]) for " + key)
+    # plt.ylabel("Frequency")
+    # plt.xlabel("Scallop Width [cm]")
+    # plt.hist(scallop_sizes, bins=100)
+    # plt.figtext(0.15, 0.85, "Total count: {}".format(len(scallop_sizes)))
+    # plt.grid(True)
+    # fig.set_size_inches(8, 6)
+    # if SAVE_PLT:
+    #     plt.savefig(RECON_DIR + "ScallopSizeDistImg_{}.jpeg".format(key), dpi=600)
+    # if DISPLAY:
+    #     plt.show()
 
 #doc.save(RECON_DIR + 'recon.psx')
 

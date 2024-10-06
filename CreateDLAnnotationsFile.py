@@ -15,7 +15,7 @@ import math
 DISPLAY = True
 WAITKEY = 0
 
-SHAPEGROUP_KEY = "Ann"
+SHAPEGROUP_KEY = "ann"
 
 CAM_COV_THRESHOLD = 0.01
 
@@ -24,12 +24,8 @@ CAM_SCALLOP_Z_THRESH = 2.0
 
 PIX_EDGE_THRESH_CORNER = 10
 
-METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/' #'/scratch/data/tkr25/Reconstructions/' #
-RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_119/'] #'/local/ScallopReconstructions/221008-122856/'] # METASHAPE_OUTPUT_BASE + 'gopro_116_1/',
-#                        METASHAPE_OUTPUT_BASE + 'gopro_118/',
-#                        METASHAPE_OUTPUT_BASE + 'gopro_123/',
-#                        METASHAPE_OUTPUT_BASE + 'gopro_124/',
-#                        METASHAPE_OUTPUT_BASE + 'gopro_125/']
+RECON_BASE = '/csse/research/CVlab/processed_bluerov_data/'  # '/local/ScallopReconstructions/' #'/scratch/data/tkr25/Reconstructions/' #
+RECONSTRUCTION_DIRS = [RECON_BASE + '240714-140552/']
 
 def TransformPoints(pnts, transform_quart):
     return np.matmul(transform_quart, np.vstack([pnts, np.ones((1, pnts.shape[1]))]))[:3, :]
@@ -53,12 +49,11 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                         2*math.atan(c.height / (2*c.f))])
 
     print("Importing shapes from files")
-    shape_files = glob.glob(RECON_DIR + '*.gpkg')
+    shape_files = glob.glob(RECON_DIR + '*anns*.gpkg')
     for shape_file in shape_files:
-        if 'Anns' in shape_file:
-            chunk.importShapes(shape_file)
-            lbl = shape_file.split('/')[-1].split('.')[0]
-            chunk.shapes.groups[-1].label = lbl
+        chunk.importShapes(shape_file)
+        lbl = shape_file.split('/')[-1].split('.')[0]
+        chunk.shapes.groups[-1].label = lbl
 
     chunk_scale = chunk.transform.scale
     print("Chunk scale: {}".format(chunk_scale))
