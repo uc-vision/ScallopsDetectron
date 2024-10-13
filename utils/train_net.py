@@ -224,7 +224,7 @@ class Trainer(TrainerBase):
         Overwrite it if you'd like a different data loader.
         """
         mapper = augmentations.CustomMapper(cfg, is_train=True, augmentations=augs)
-        return build_detection_train_loader(cfg, mapper=mapper)
+        return build_detection_train_loader(cfg, mapper=mapper, prefetch_factor=2)
 
     @classmethod
     def build_test_loader(cls, cfg, dataset_name):

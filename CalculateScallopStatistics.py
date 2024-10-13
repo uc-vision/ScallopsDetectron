@@ -1,18 +1,17 @@
-import zipfile
-import tempfile
 import glob
-import xml.etree.cElementTree as ET
 import geopandas as gp
 import pandas as pd
 from shapely.geometry import *
 import numpy as np
-from utils import geo_utils
+from utils import geo_utils, vpz_utils
 from utils.transect_mapper import transect_mapper
 import os
 
 # Will break code:
 # Overlapping polygons in the same class of either include OR exclude
 # Tape reference must be part of vpz file not imported shape
+
+SHAPE_CRS = "EPSG:4326"
 
 PROCESSED_BASEDIR = "/csse/research/CVlab/processed_bluerov_data/"
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
@@ -53,29 +52,20 @@ if __name__ == "__main__":
         exclude_polys = []
         include_polys = []
         transect_map = None
-        zf = zipfile.ZipFile(dir_full + dir_name + '.vpz')
-        with tempfile.TemporaryDirectory() as tempdir:
-            zf.extractall(tempdir)
-            vpz_root = ET.parse(tempdir + '/doc.xml').getroot()
-            for child in vpz_root.iter('layer'):
-                if child.attrib['type'] == 'shapes':
-                    elem_data = list(child.iter('data'))
-                    elem_src = list(child.iter('source'))
-                    if len(elem_data):
-                        shape_fn = tempdir + '/' + elem_data[0].attrib['path']
-                    elif len(elem_src):
-                        shape_fn = dir_full + elem_src[0].attrib['path']
-                    else:
-                        continue
-                    if child.attrib['label'] in ['Exclude Areas', 'Include Areas']:
-                        dst_list = exclude_polys if child.attrib['label'] == 'Exclude Areas' else include_polys
-                        for i, row in gp.read_file(shape_fn).iterrows():
-                            if isinstance(row.geometry, Polygon):
-                                dst_list.append(row.geometry)
-                    if child.attrib['label'] == "Tape Reference":
-                        transect_map = transect_mapper.TransectMapper()
-                        transect_map.create_map_from_gpkg(shape_fn)
-                        print("Tape reference found")
+        shape_layers_gpd = vpz_utils.get_shape_layers_gpd(dir_full,  dir_name + '.vpz')
+        for label, shape_layer in shape_layers_gpd:
+            if label in ['Exclude Areas', 'Include Areas']:
+                dst_list = exclude_polys if label == 'Exclude Areas' else include_polys
+                for i, row in shape_layer.iterrows():
+                    if isinstance(row.geometry, Polygon):
+                        dst_list.append(row.geometry)
+                    if isinstance(row.geometry, MultiPolygon):
+                        dst_list.extend(row.geometry.geoms)
+            if label == "Tape Reference":
+                transect_map = transect_mapper.TransectMapper()
+                transect_map.create_map_from_gdf(shape_layer)
+                print("Tape reference found")
+        # print(shape_layers_gpd)
 
         # TODO: check for overlap interclass and trim
 
@@ -141,14 +131,15 @@ if __name__ == "__main__":
 
         # If paired site, read from diver data and process
         diver_data_fn = PROCESSED_BASEDIR + 'ruk2401_dive_slate_data_entry Kura Reihana.csv'
-        print(transect_map)
         if transect_map and os.path.isfile(diver_data_fn):
             diver_points_gps = []
             diver_measurements = []
+            tags = []
             diver_measurements_df = pd.read_csv(diver_data_fn)
             for i, csv_row in diver_measurements_df.iterrows():
                 t_para = csv_row['y']
                 t_perp = csv_row["x"]
+                diver_initials = csv_row['diver'].split(' ')[0]
                 left_side = 'Left' in str(csv_row['diver'])
                 t_perp = (-1 if left_side else 1) * t_perp / 100
                 if csv_row['site'] == 'UQ 19':
@@ -156,10 +147,10 @@ if __name__ == "__main__":
                     if gps_coord is not None:
                         diver_points_gps.append(Point(gps_coord))
                         diver_measurements.append(csv_row["SCA_mm"] / 1000)
+                        tags.append(diver_initials + ' ' + str(diver_measurements[-1]))
             # TODO: compare diver measured and detected / annotated scallops, produce plots and statistics
-
-            tags = [str(t) for t in diver_measurements]
             diver_meas_gdf = gp.GeoDataFrame({'NAME': tags, 'geometry': diver_points_gps}, geometry='geometry')
+            diver_meas_gdf.set_crs(SHAPE_CRS, inplace=True)
             diver_meas_gdf.to_file(dir_full + 'Diver Measurements.geojson', driver='GeoJSON')
 
         site_dataframe = pd.DataFrame(scallop_stats)

@@ -10,19 +10,19 @@ def getDatasetDict(dataset_dir):
     with open(dataset_dir + "/" + json_files[0], 'r') as fp:
         dataset_dict = json.load(fp)
         for data_entry in dataset_dict:
-            data_entry["file_name"] = dataset_dir + '/' + data_entry["file_name"].split('/')[-1]
+            data_entry["file_name"] = dataset_dir + data_entry["file_name"]
     return dataset_dict
 
 
 def setup(args):
     train_dirs, valid_dirs = args["dataset_dirs"]
     DatasetCatalog.clear()
-    for idx, dataset_dir in enumerate(train_dirs+valid_dirs):
+    for idx, dataset_dir in enumerate(train_dirs):  # +valid_dirs
         DatasetCatalog.register(dataset_dir, lambda dataset_dir=dataset_dir: getDatasetDict(dataset_dir))
         MetadataCatalog.get(dataset_dir).set(thing_classes=["scallop"])
 
     cfg = get_cfg()
-    cfg.merge_from_file("./detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+    cfg.merge_from_file("./cnns/mask_rcnn_R_50_FPN_3x.yaml")
     cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
 
     cfg.NUM_GPUS = args["num_gpus"]
@@ -32,10 +32,10 @@ def setup(args):
 
     cfg.OUTPUT_DIR = args["output_dir"]
     cfg.DATASETS.TRAIN = train_dirs
-    cfg.DATASETS.TEST = valid_dirs
+    cfg.DATASETS.TEST = train_dirs
     cfg.TEST.EVAL_PERIOD = 500 // cfg.NUM_GPUS
     cfg.DATALOADER.NUM_WORKERS = 4
-    cfg.SOLVER.CHECKPOINT_PERIOD = 5000 // cfg.NUM_GPUS
+    cfg.SOLVER.CHECKPOINT_PERIOD = 100  # 5000 // cfg.NUM_GPUS
 
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.0
     cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.0

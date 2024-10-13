@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 from tqdm import tqdm
-import Metashape
+from shapely.geometry import *
 import re
 import math
 from utils import geo_utils
@@ -155,7 +155,7 @@ def get_chunk_polygons_dict(chunk, key=None, world_crs=False):
         shape_label = shape.label
         if key is not None and key not in group_label:
             continue
-        if shape.geometry.type != Metashape.Geometry.Type.PolygonType:
+        if shape.geometry.type != Polygon:
             continue
         vertex_coords = shape.geometry.coordinates[0]
         if isinstance(vertex_coords[0], int):

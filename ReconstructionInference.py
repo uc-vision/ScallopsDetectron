@@ -28,7 +28,7 @@ LINE_DIST_THRESH = 1.0
 EDGE_LIMIT_PIX = 200 // IMG_RS_MOD
 OUTLIER_RADIUS = 0.1
 
-IMSHOW = False
+IMSHOW = True
 VTK = False
 WAITKEY = 0
 
@@ -60,7 +60,7 @@ RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_128_nocrop/']
 #                        METASHAPE_OUTPUT_BASE + 'gopro_125/']
 RECONSTRUCTION_DIRS = ["/csse/research/CVlab/processed_bluerov_data/240714-140552/"]
 
-MODEL_PATH = "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
+MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/first_train_new/"  # /local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
 
 cfg = get_cfg()
 cfg.NUM_GPUS = 1
@@ -69,8 +69,8 @@ model_paths = [str(path) for path in pathlib.Path(MODEL_PATH).glob('*.pth')]
 model_paths.sort()
 cfg.MODEL.WEIGHTS = os.path.join(model_paths[-1])
 
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
-cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.2
+cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.2
 cfg.TEST.DETECTIONS_PER_IMAGE = 1000
 cfg.TEST.AUG.ENABLED = False
 cfg.TEST.AUG.MIN_SIZES = (400, 500, 600, 700, 800, 900, 1000, 1100, 1200)
@@ -187,6 +187,8 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
         bboxes = instances._fields['pred_boxes']
         scores = instances._fields['scores']
         if IMSHOW:
+            if len(masks) == 0:
+                continue
             v = Visualizer(img_rs[:, :, ::-1], MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1)
             v = v.draw_instance_predictions(instances)
             out_image = v.get_image()[:, :, ::-1].copy()
