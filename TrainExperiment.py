@@ -35,6 +35,7 @@ augs = [transforms.RandomBrightness(0.8, 1.2),
         #A.GeometricTransform()
         ]
 no_augs = [transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),]
+           # transforms.ScaleTransform(h=, w=, new_h=CNN_INPUT_SHAPE[0], new_w=CNN_INPUT_SHAPE[1])]
 
 
 EXP_START_IDX = 0

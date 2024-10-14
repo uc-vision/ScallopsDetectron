@@ -13,7 +13,7 @@ import glob
 import math
 from shapely.geometry import *
 
-DISPLAY = False
+DISPLAY = True
 WAITKEY = 0
 
 CAM_COV_THRESHOLD = 0.02
@@ -99,99 +99,100 @@ def create_dl_file(data_dir):
         cam_quart = cam_telem['q44']
         cam_cov = cam_telem['loc_cov33']
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
-        if xyz_cov_mean < CAM_COV_THRESHOLD / chunk_scale:
-            img_shape = cam_telem['shape']
-            img_path = cam_telem['fpath']
-            img_path_rel = '/'.join(img_path.split('/')[-3:])
-            camMtx = cam_telem['cam_mtx']
-            camDist = cam_telem['cam_dist']
-            cam_fov = cam_telem['cam_fov']
+        if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale:
+            continue
+        img_shape = cam_telem['shape']
+        img_path_rel = cam_telem['cpath']
+        img_path = data_dir + img_path_rel
+        camMtx = cam_telem['cam_mtx']
+        camDist = cam_telem['cam_dist']
+        cam_fov = cam_telem['cam_fov']
 
-            # img = np.frombuffer(cam_img_m.tostring(), dtype=np.uint8).reshape((int(cam_img_m.height), int(cam_img_m.width), -1))[:, :, ::-1]
-            # img_cam_und = cv2.undistort(img, cameraMatrix=camMtx, distCoeffs=camDist, newCameraMatrix=newcameramtx)
+        # img = np.frombuffer(cam_img_m.tostring(), dtype=np.uint8).reshape((int(cam_img_m.height), int(cam_img_m.width), -1))[:, :, ::-1]
+        # img_cam_und = cv2.undistort(img, cameraMatrix=camMtx, distCoeffs=camDist, newCameraMatrix=newcameramtx)
 
-            # Deletion of image regions not in orthomosaic
-            # valid_pixel_mask = np.zeros_like(img)
-            # row_indices, col_indices = np.indices((img_shape[0], img_shape[1]))[:, ::20, ::20]
-            # pnts_uv = np.array([col_indices.flatten(), row_indices.flatten(), col_indices.size*[1]], dtype=np.float32)
-            # cam_rays = np.matmul(np.linalg.inv(camMtx), pnts_uv)
-            # cam_pnts = TransformPoints(cam_rays, cam_quart)
-            # for cam_pnt in cam_pnts.transpose():
-            #     cam_origin = Metashape.Vector(cam_quart[:3, 3])
-            #     ray_pnt = Metashape.Vector(cam_pnt)
-            #     closest_intersection = chunk_densepoints.pickPoint(cam_origin, ray_pnt)
-            #     if closest_intersection is not None:
-            #         if (cam_origin - closest_intersection).norm() < 10:
-            #             img_pixels = cam.project(closest_intersection)
-            #             if img_pixels is not None:
-            #                 valid_pix_int = np.array(img_pixels, dtype=np.int).reshape((2,))
-            #                 cv2.circle(valid_pixel_mask, tuple(valid_pix_int), 100, (1, 1, 1), -1)
-            # img_cam_und_roi *= valid_pixel_mask
+        # Deletion of image regions not in orthomosaic
+        # valid_pixel_mask = np.zeros_like(img)
+        # row_indices, col_indices = np.indices((img_shape[0], img_shape[1]))[:, ::20, ::20]
+        # pnts_uv = np.array([col_indices.flatten(), row_indices.flatten(), col_indices.size*[1]], dtype=np.float32)
+        # cam_rays = np.matmul(np.linalg.inv(camMtx), pnts_uv)
+        # cam_pnts = TransformPoints(cam_rays, cam_quart)
+        # for cam_pnt in cam_pnts.transpose():
+        #     cam_origin = Metashape.Vector(cam_quart[:3, 3])
+        #     ray_pnt = Metashape.Vector(cam_pnt)
+        #     closest_intersection = chunk_densepoints.pickPoint(cam_origin, ray_pnt)
+        #     if closest_intersection is not None:
+        #         if (cam_origin - closest_intersection).norm() < 10:
+        #             img_pixels = cam.project(closest_intersection)
+        #             if img_pixels is not None:
+        #                 valid_pix_int = np.array(img_pixels, dtype=np.int).reshape((2,))
+        #                 cv2.circle(valid_pixel_mask, tuple(valid_pix_int), 100, (1, 1, 1), -1)
+        # img_cam_und_roi *= valid_pixel_mask
 
-            record = {}
-            height, width = img_shape
-            record["file_name"] = img_path_rel
-            record["height"] = height
-            record["width"] = width
-            record["image_id"] = img_id
-            img_id += 1
-            objs = []
-            display_polygon_l = []
-            display_bxs = []
+        record = {}
+        height, width = img_shape
+        record["file_name"] = img_path_rel
+        record["height"] = height
+        record["width"] = width
+        record["image_id"] = img_id
+        img_id += 1
+        objs = []
+        display_polygon_l = []
+        display_bxs = []
 
-            for scallop_id, polygon in enumerate(polygons_chunk):
-                polygon_cam = TransformPoints(polygon.T, np.linalg.inv(cam_quart))
-                if not spf.in_camera_fov(polygon_cam, cam_fov):
-                    continue
-                pix_coords = spf.Project2Img(polygon_cam, camMtx, camDist).astype(int).T
-                valid_pix_coords = pix_coords[:, np.where((pix_coords[0, :] >= 0) * (pix_coords[0, :] < width) *
-                                                          (pix_coords[1, :] >= 0) * (pix_coords[1, :] < height))][:, 0,
-                                   :]
-                if valid_pix_coords.shape[1] < 3:
-                    continue
+        for scallop_id, polygon in enumerate(polygons_chunk):
+            polygon_cam = TransformPoints(polygon.T, np.linalg.inv(cam_quart))
+            if not spf.in_camera_fov(polygon_cam, cam_fov):
+                continue
+            pix_coords = spf.Project2Img(polygon_cam, camMtx, camDist).astype(int).T
+            valid_pix_coords = pix_coords[:, np.where((pix_coords[0, :] >= 0) * (pix_coords[0, :] < width) *
+                                                      (pix_coords[1, :] >= 0) * (pix_coords[1, :] < height))][:, 0,
+                               :]
+            if valid_pix_coords.shape[1] < 3:
+                continue
 
-                # Fill in corner detections where it would cut
-                is_edge = np.less(valid_pix_coords, PIX_EDGE_THRESH_CORNER) + \
-                          np.greater(valid_pix_coords, np.array([[width - PIX_EDGE_THRESH_CORNER],
-                                                                 [height - PIX_EDGE_THRESH_CORNER]]))
-                needs_corner = np.logical_xor(is_edge[0, :-1], is_edge[0, 1:]) * \
-                               np.logical_xor(is_edge[1, :-1], is_edge[1, 1:]) * \
-                               np.logical_xor(is_edge[0, :-1], is_edge[1, :-1])
-                if np.any(needs_corner):
-                    corner_index = np.argmax(needs_corner) + 1
-                    corner_pix = valid_pix_coords[:, corner_index]
-                    corner_pix = np.round(corner_pix / np.array([width, height])) * np.array([width, height])
-                    valid_pix_coords = np.insert(valid_pix_coords, corner_index, corner_pix, axis=1)
+            # Fill in corner detections where it would cut
+            is_edge = np.less(valid_pix_coords, PIX_EDGE_THRESH_CORNER) + \
+                      np.greater(valid_pix_coords, np.array([[width - PIX_EDGE_THRESH_CORNER],
+                                                             [height - PIX_EDGE_THRESH_CORNER]]))
+            needs_corner = np.logical_xor(is_edge[0, :-1], is_edge[0, 1:]) * \
+                           np.logical_xor(is_edge[1, :-1], is_edge[1, 1:]) * \
+                           np.logical_xor(is_edge[0, :-1], is_edge[1, :-1])
+            if np.any(needs_corner):
+                corner_index = np.argmax(needs_corner) + 1
+                corner_pix = valid_pix_coords[:, corner_index]
+                corner_pix = np.round(corner_pix / np.array([width, height])) * np.array([width, height])
+                valid_pix_coords = np.insert(valid_pix_coords, corner_index, corner_pix, axis=1)
 
-                display_polygon_l.append(valid_pix_coords.transpose())
-                x_min, y_min = np.min(valid_pix_coords, axis=1).tolist()
-                x_max, y_max = np.max(valid_pix_coords, axis=1).tolist()
-                display_bxs.append([[x_min, y_min], [x_max, y_max]])
-                obj = {
-                    "bbox": [x_min, y_min, x_max, y_max],
-                    "bbox_mode": BoxMode.XYXY_ABS,
-                    "segmentation": [valid_pix_coords.transpose().tolist()],
-                    "category_id": 0,
-                    "id": scallop_id,
-                    "iscrowd": 0,
-                    "name": 'scallop',
-                }
-                objs.append(obj)
-            record["annotations"] = objs
-            label_dict.append(record)
+            display_polygon_l.append(valid_pix_coords.transpose())
+            x_min, y_min = np.min(valid_pix_coords, axis=1).tolist()
+            x_max, y_max = np.max(valid_pix_coords, axis=1).tolist()
+            display_bxs.append([[x_min, y_min], [x_max, y_max]])
+            obj = {
+                "bbox": [x_min, y_min, x_max, y_max],
+                "bbox_mode": BoxMode.XYXY_ABS,
+                "segmentation": [valid_pix_coords.transpose().tolist()],
+                "category_id": 0,
+                "id": scallop_id,
+                "iscrowd": 0,
+                "name": 'scallop',
+            }
+            objs.append(obj)
+        record["annotations"] = objs
+        label_dict.append(record)
 
-            if DISPLAY and len(display_polygon_l):
-                drawing = cv2.imread(img_path)
-                for polygon in display_polygon_l:
-                    cv2.polylines(drawing, [polygon], False, (0, 255, 0), thickness=2)
-                for box_pt1, box_pt2 in display_bxs:
-                    cv2.rectangle(drawing, tuple(box_pt1), tuple(box_pt2), (0, 255, 255), 2)
-                cv2.imshow("Annotated img", drawing)
-                key = cv2.waitKey(WAITKEY)
-                if key == ord('b'):
-                    break
-                if key == ord('q'):
-                    exit(0)
+        if DISPLAY and len(display_polygon_l):
+            drawing = cv2.imread(img_path)
+            for polygon in display_polygon_l:
+                cv2.polylines(drawing, [polygon], False, (0, 255, 0), thickness=2)
+            for box_pt1, box_pt2 in display_bxs:
+                cv2.rectangle(drawing, tuple(box_pt1), tuple(box_pt2), (0, 255, 255), 2)
+            cv2.imshow("Annotated img", drawing)
+            key = cv2.waitKey(WAITKEY)
+            if key == ord('b'):
+                break
+            if key == ord('q'):
+                exit(0)
 
     if not DISPLAY:
         print("Saving annotations json...")
@@ -202,17 +203,16 @@ def create_dl_file(data_dir):
 if __name__ == '__main__':
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    for data_dir in data_dirs:
-        if 'STOP' in data_dir:
+    for dir_line in data_dirs:
+        if 'STOP' in dir_line:
             break
         # Check if this is a valid directory that needs processing
-        if len(data_dir) == 1 or '#' in data_dir:
+        if len(dir_line) == 1 or '#' in dir_line:
             continue
-        data_dir = data_dir.split(' ')[0]
-        assert len(data_dir) == 14
+        data_dir = dir_line.split(' ')[0][:13] + '/'
 
         # Process this directory
-        create_dl_file(PROCESSED_BASEDIR + data_dir[:-1]+'/')
+        create_dl_file(PROCESSED_BASEDIR + data_dir)
 
         break
 

@@ -1,11 +1,22 @@
-from math import cos, radians, sin, asin, sqrt, atan2
+from math import cos, radians, degrees, sin, asin, sqrt, atan2, atan
 import numpy as np
+import pyproj
 
 R = 6370  # Radius of earth in KM at NZ (-35 latitude)
 
 # Ellipsoid parameters: semi major axis in metres, reciprocal flattening.
 GRS80 = 6378137, 298.257222100882711
 WGS84 = 6378137, 298.257223563
+clarke1880 = 6378249.145, 6356514.966
+
+
+transformer_gd2gc = pyproj.Transformer.from_crs(
+    {"proj": 'latlong', "ellps": 'WGS84', "datum": 'WGS84'},
+    {"proj": 'geocent', "ellps": 'WGS84', "datum": 'WGS84'},
+    )
+def geodetic_to_geocentric_2(latitude, longitude, height):
+    return transformer_gd2gc.transform(latitude, longitude, height)
+
 
 def geodetic_to_geocentric(latitude, longitude, height):
     """Return geocentric (Cartesian) Coordinates x, y, z corresponding to
@@ -25,6 +36,12 @@ def geodetic_to_geocentric(latitude, longitude, height):
     y = r * sin(λ)
     z = (n * (1 - e2) + height) * sin_φ
     return x, y, z
+
+
+transformer_gc2gd = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:4978", always_xy=True)
+def geocentric_to_geodetic(x, y, z):
+    return transformer_gc2gd.transform(x, y, z, direction="INVERSE")
+
 
 def convert_gps2local(datum, coords):
     local = coords.copy() - datum

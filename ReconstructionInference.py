@@ -8,30 +8,32 @@ from detectron2.data import MetadataCatalog
 import pathlib, os
 from detectron2.config import get_cfg
 from utils import VTKPointCloud as PC, polygon_functions as spf
+from utils import geo_utils
 import vtk
-import Metashape
-print("Metashape version {}".format(Metashape.version))
 import time
 from datetime import datetime
-import glob
 from shapely.geometry import Polygon, Point
 import geopandas as gpd
+import pickle
 
 UD_ALPHA = 0
-IMG_RS_MOD = 2
+IMG_RS_MOD = 1
 CAM_IDX_LIMIT = -1
 
 MASK_PNTS_SUB = 200
 
-SCALE_MUL = 1.0
-LINE_DIST_THRESH = 1.0
 EDGE_LIMIT_PIX = 200 // IMG_RS_MOD
 OUTLIER_RADIUS = 0.1
+CAM_PROXIMITY_THRESH = 0.3  # m
+ELEV_MEAN_PROX_THRESH = 0.05
 
-IMSHOW = True
+CAM_COV_THRESHOLD = 0.02
+
+IMSHOW = False
 VTK = False
 WAITKEY = 0
 
+SHAPE_CRS = "EPSG:4326"
 
 import yappi
 yappi.start()
@@ -52,15 +54,11 @@ def draw_scaled_axes(img, axis_vecs, axis_scales, origin, cam_mtx):
     cv2.line(img, tuple(axis_points[3].ravel()), tuple(axis_points[1].ravel()), (0, 255, 0), 3)
     cv2.line(img, tuple(axis_points[3].ravel()), tuple(axis_points[0].ravel()), (0, 0, 255), 3)
 
-METASHAPE_OUTPUT_BASE = '/local/ScallopReconstructions/'
-RECONSTRUCTION_DIRS = [METASHAPE_OUTPUT_BASE + 'gopro_128_nocrop/']
-#                        METASHAPE_OUTPUT_BASE + 'gopro_118/',
-#                        METASHAPE_OUTPUT_BASE + 'gopro_123/',
-#                        METASHAPE_OUTPUT_BASE + 'gopro_124/',
-#                        METASHAPE_OUTPUT_BASE + 'gopro_125/']
-RECONSTRUCTION_DIRS = ["/csse/research/CVlab/processed_bluerov_data/240714-140552/"]
 
-MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/first_train_new/"  # /local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
+PROCESSED_BASEDIR = '/csse/research/CVlab/processed_bluerov_data/'
+DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
+
+MODEL_PATH = "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"  # "/csse/research/CVlab/processed_bluerov_data/training_outputs/first_train_new/"  # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
 
 cfg = get_cfg()
 cfg.NUM_GPUS = 1
@@ -69,8 +67,8 @@ model_paths = [str(path) for path in pathlib.Path(MODEL_PATH).glob('*.pth')]
 model_paths.sort()
 cfg.MODEL.WEIGHTS = os.path.join(model_paths[-1])
 
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.2
-cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.2
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.8
+cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 cfg.TEST.DETECTIONS_PER_IMAGE = 1000
 cfg.TEST.AUG.ENABLED = False
 cfg.TEST.AUG.MIN_SIZES = (400, 500, 600, 700, 800, 900, 1000, 1100, 1200)
@@ -100,95 +98,68 @@ if VTK:
     ren.AddActor(pnt_cld.vtkActor)
     iren.Initialize()
 
-for RECON_DIR in RECONSTRUCTION_DIRS:
-    doc = Metashape.Document()
-    doc.open(RECON_DIR + "recon.psx")
-    #doc.read_only = False
-    chunk = doc.chunks[0]
-    chunk_scale = SCALE_MUL * chunk.transform.scale or 1
-    chunk_transform = chunk.transform.matrix
-    chunk_T_inv = np.array(chunk_transform.inv()).reshape((4, 4))
-    print("Chunk scale: {}".format(chunk_scale))
-    cameras = chunk.cameras
 
-    shape_files = glob.glob(RECON_DIR + '*.gpkg')
-    for shape_file in shape_files:
-        chunk.importShapes(shape_file)
-        lbl = shape_file.split('/')[-1].split('.')[0]
-        chunk.shapes.groups[-1].label = lbl
+def TransformPoints(pnts, transform_quart):
+    return np.matmul(transform_quart, np.vstack([pnts, np.ones((1, pnts.shape[1]))]))[:3, :]
 
-    if chunk.shapes is None:
-        chunk.shapes = Metashape.Shapes()
-        chunk.shapes.crs = Metashape.CoordinateSystem("EPSG::4326")
-    shapes = chunk.shapes.shapes
-    shapes_crs = chunk.shapes.crs
-    # chunk_marker_dict = {v.key: v.position for v in chunk.markers}
-    rope_lines = [shape for shape in shapes if shape.geometry.type == Metashape.Geometry.Type.LineStringType]
-    has_roperefs = len(rope_lines) > 0
-    rope_lines_chunk = [np.array(line.geometry.coordinates) for line in rope_lines] if len(rope_lines) else [None]
-    ref_line = rope_lines_chunk[0]
 
-    # if chunk.model is None:
-    #     chunk.buildModel()
-    #     doc.save()
+def run_inference(recon_dir):
+    print("Loading Chunk Telemetry")
+    with open(recon_dir + "chunk_telemetry.pkl", "rb") as pkl_file:
+        chunk_telem = pickle.load(pkl_file)
+        chunk_scale = chunk_telem['0']['scale']
+        chunk_transform = chunk_telem['0']['transform']
+        # print(chunk_telem['0']['geoccs'])
+        # print(chunk_telem['0']['geogcs'])
+
+    print("Loading Camera Telemetry")
+    with open(recon_dir + "camera_telemetry.pkl", "rb") as pkl_file:
+        camera_telem = pickle.load(pkl_file)
 
     prediction_geometries = []
     prediction_markers = []
     prediction_labels = []
-    for cam in tqdm(cameras[:CAM_IDX_LIMIT]):
-        if cam.transform is None:
+    gcs2ccs = lambda pnt: geo_utils.geocentric_to_geodetic(pnt[0], pnt[1], pnt[2])
+    cnt = 0
+    for cam_label, cam_telem in tqdm(camera_telem.items()):
+        cnt += 1
+        if cnt % 10 != 0:
+            continue
+        cam_quart = cam_telem['q44']
+        cam_cov = cam_telem['loc_cov33']
+        xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
+        if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale:
             continue
 
-        start_time = time.time()
+        img_shape = cam_telem['shape']
+        cimg_path = cam_telem['cpath']
+        dimg_path = cam_telem['dpath']
+        camMtx = cam_telem['cam_mtx']
+        camMtx[:2, :] /= IMG_RS_MOD
+        camDist = cam_telem['cam_dist']
+        cam_fov = cam_telem['cam_fov']
 
         # Images from metashape are distorted including depth image
-        cam_img_m = cam.image()
-        img_path = cam.photo.path
-        img_fn = img_path.split('/')[-1]
-
-        c = cam.calibration
-        camMtx = np.array([[c.f + c.b1, c.b2, c.cx + c.width / 2],
-                           [0, c.f, c.cy + c.height / 2],
-                           [0, 0, 1]])
-        camMtx[:2, :] /= IMG_RS_MOD
-        camDist = np.array([[c.k1, c.k2, c.p2, c.p1, c.k3]])
-        img = np.frombuffer(cam_img_m.tostring(), dtype=np.uint8).reshape((int(cam_img_m.height), int(cam_img_m.width), -1))[:, :, ::-1]
-        img_rs = cv2.resize(img, (img.shape[1] // IMG_RS_MOD, img.shape[0] // IMG_RS_MOD))
+        img = cv2.imread(recon_dir + cimg_path)
+        rs_size = (img_shape[1] // IMG_RS_MOD, img_shape[0] // IMG_RS_MOD)
+        img_rs = cv2.resize(img, rs_size)
         # img_cam_ud = cv2.undistort(img_rs, cameraMatrix=camMtx, distCoeffs=camDist)
-        rs_shape = img_rs.shape
-
-        cam_quart = np.array(cam.transform).reshape((4, 4))
-
-        # img_depth_ms = chunk.model.renderDepth(cam.transform, cam.sensor.calibration, add_alpha=False)
-        if cam not in chunk.depth_maps:
-            continue
-        img_depth_ms = chunk.depth_maps[cam].image()
-        img_depth_np = np.frombuffer(img_depth_ms.tostring(), dtype=np.float32).reshape((img_depth_ms.height, img_depth_ms.width, 1))
-        img_depth_np = cv2.resize(img_depth_np, (rs_shape[1], rs_shape[0]))
-        # img_depth_np = cv2.blur(img_depth_np, ksize=(51, 51))
-
-        # img_depth_display = np.repeat(img_depth_np[:, :, None], 3, axis=2) - np.min(img_depth_np)
-        # img_depth_display /= np.max(img_depth_display) + 1e-9
-        # cv2.imshow("depth", img_depth_display)
-        # cv2.imshow("img", img_rs)
-        # cv2.imshow("overlap", img_rs.astype(np.float32) / 510 + img_depth_display)
-        # cv2.imshow("overlap_ud", img_cam_ud.astype(np.float32) / 510 + img_depth_display)
-        # img_from_file = cv2.imread(img_path)
-        # cv2.imshow("img from file", cv2.resize(img_from_file, (img.shape[1] // IMG_RS_MOD, img.shape[0] // IMG_RS_MOD)))
-        # cv2.imshow("img from metashape", img_rs)
-        # cv2.waitKey()
-        # exit(0)
-
-        edge_box = (EDGE_LIMIT_PIX, EDGE_LIMIT_PIX, rs_shape[1]-EDGE_LIMIT_PIX, rs_shape[0]-EDGE_LIMIT_PIX)
 
         outputs = predictor(img_rs)
         instances = outputs["instances"].to("cpu")
         masks = instances._fields['pred_masks']
         bboxes = instances._fields['pred_boxes']
         scores = instances._fields['scores']
+        if len(masks) == 0:
+            continue
+
+        img_depth_np = np.load(recon_dir + dimg_path)
+        img_depth_np = cv2.resize(img_depth_np, rs_size)
+        # img_depth_np = cv2.blur(img_depth_np, ksize=(11, 11))
+
+        edge_box = (EDGE_LIMIT_PIX, EDGE_LIMIT_PIX, rs_size[0]-EDGE_LIMIT_PIX, rs_size[1]-EDGE_LIMIT_PIX)
+
         if IMSHOW:
-            if len(masks) == 0:
-                continue
             v = Visualizer(img_rs[:, :, ::-1], MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1)
             v = v.draw_instance_predictions(instances)
             out_image = v.get_image()[:, :, ::-1].copy()
@@ -206,17 +177,25 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                     cv2.circle(out_image, (scallop_centre[0], scallop_centre[1]), int(radius), color=(0, 255, 0), thickness=2)
                     cv2.drawContours(out_image, contours, contourIdx=-1, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
 
+                # TODO: check all undistortion code and images distortion
+
                 # Undistort polygon vertices
-                vert_elavations = img_depth_np[scallop_polygon[:, 1], scallop_polygon[:, 0]]
-                valid_indices = np.where(vert_elavations != 0.0)
+                vert_elevations = img_depth_np[scallop_polygon[:, 1], scallop_polygon[:, 0]]
+                # Threshold out points close to camera
+                valid_indices = np.where(vert_elevations > (CAM_PROXIMITY_THRESH / chunk_scale))
                 if len(valid_indices[0]) < 10:
                     continue
-                vert_elavations = vert_elavations[valid_indices]
+                vert_elevation_mean = np.mean(vert_elevations[valid_indices])
+                valid_indices = np.where(np.abs(vert_elevations - vert_elevation_mean) < (ELEV_MEAN_PROX_THRESH / chunk_scale))
+                if len(valid_indices[0]) < 10:
+                    continue
+                vert_elevations = vert_elevations[valid_indices]
                 scallop_polygon = scallop_polygon[valid_indices]
                 pxpoly_ud = spf.undistort_pixels(scallop_polygon, camMtx, camDist)
                 scallop_poly_cam = CamPixToChunkPnt(pxpoly_ud.T, camMtx)
-                scallop_poly_cam = scallop_poly_cam * vert_elavations.T
-                # print(repr(scallop_poly_cam))
+                scallop_poly_cam = scallop_poly_cam * vert_elevations.T
+
+                # TODO: flatten detection
 
                 num_mask_pixs = len(mask_pnts)
                 if num_mask_pixs < MASK_PNTS_SUB:
@@ -224,31 +203,27 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                 mask_pnts_mod = max(1, num_mask_pixs // MASK_PNTS_SUB)
                 mask_pnts_sub = mask_pnts[::mask_pnts_mod]
 
-                vert_elavations = img_depth_np[mask_pnts_sub[:, 1], mask_pnts_sub[:, 0]]
+                vert_elevations = img_depth_np[mask_pnts_sub[:, 1], mask_pnts_sub[:, 0]]
                 mask_pnts_ud = spf.undistort_pixels(mask_pnts_sub, camMtx, camDist)
                 scallop_pnts_cam = CamPixToChunkPnt(mask_pnts_sub.T, camMtx)
-                scallop_pnts_cam = scallop_pnts_cam * vert_elavations.T
+                scallop_pnts_cam = scallop_pnts_cam * vert_elevations.T
                 scallop_pnts_cam = spf.remove_outliers(scallop_pnts_cam, OUTLIER_RADIUS / chunk_scale)
                 if scallop_pnts_cam.shape[1] < 10:
                     continue
-                scallop_polygon_chunk = CamToChunk(scallop_poly_cam, cam_quart)
                 scallop_pnts_chunk = CamToChunk(scallop_pnts_cam, cam_quart)
                 scallop_center_chunk = scallop_pnts_chunk.mean(axis=1)
-                if ref_line:
-                    within_transect = spf.polyline_dist_thresh(scallop_center_chunk, ref_line, LINE_DIST_THRESH / chunk_scale)
-                else:
-                    within_transect = True
-                if within_transect:
-                    scallop_center_cam = scallop_poly_cam.mean(axis=1)
-                    cam_center_offset_cos = scallop_center_cam[2] / (np.linalg.norm(scallop_center_cam)+1e-32)
-                    cam_center_offset_cos = -1 if np.isnan(cam_center_offset_cos) else cam_center_offset_cos
-                    polygon = []
-                    for pnt in scallop_polygon_chunk.T:
-                        pnt_wrld = shapes_crs.project(chunk_transform.mulp(Metashape.Vector(pnt)))
-                        polygon.append(pnt_wrld)
-                    prediction_geometries.append(Polygon(polygon))
-                    prediction_markers.append(Point(np.mean(polygon, axis=0)))
-                    prediction_labels.append(str({"label": "live", "conf": round(score.item(), 2), "cntr_cos": round(cam_center_offset_cos, 2)}))
+
+                scallop_center_cam = scallop_poly_cam.mean(axis=1)
+                cam_center_offset_cos = scallop_center_cam[2] / (np.linalg.norm(scallop_center_cam)+1e-32)
+                cam_center_offset_cos = -1 if np.isnan(cam_center_offset_cos) else cam_center_offset_cos
+
+                scallop_polygon_chunk = CamToChunk(scallop_poly_cam, cam_quart)
+                scallop_polygon_geocentric = TransformPoints(scallop_polygon_chunk, chunk_transform)
+                scallop_polygon_geodetic = np.apply_along_axis(gcs2ccs, 1, scallop_polygon_geocentric.T)
+                prediction_geometries.append(Polygon(scallop_polygon_geodetic))
+                prediction_markers.append(Point(np.mean(scallop_polygon_geodetic, axis=0)))
+                prediction_labels.append(str({"label": "live", "conf": round(score.item(), 2),
+                                              "cntr_cos": round(cam_center_offset_cos, 2)}))
 
                 if IMSHOW and scallop_pnts_cam.shape[1] > 1:
                     pc_vecs, pc_lengths, center_pnt = spf.pca(scallop_pnts_cam.T)
@@ -256,12 +231,10 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
                     pc_lengths = np.sqrt(pc_lengths) * MUL
                     scaled_pc_lengths = pc_lengths * chunk_scale * 2
                     width_scallop_circle = 2 * chunk_scale * scallop_pnts_cam[2, :].mean() * radius / camMtx[0, 0]
-
-                    txt_col = (255, 255, 255) if within_transect else (0, 0, 255)
                     cv2.putText(out_image, str(round(scaled_pc_lengths[0], 3)), tuple(scallop_centre + np.array([20, -10])),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, txt_col, 4, cv2.LINE_AA)
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 4, cv2.LINE_AA)
                     cv2.putText(out_image, str(round(width_scallop_circle, 3)), tuple(scallop_centre + np.array([20, 30])),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, txt_col, 4, cv2.LINE_AA)
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 4, cv2.LINE_AA)
                     # draw_scaled_axes(out_image, pc_vecs, pc_lengths, center_pnt, camMtx)
 
                 if VTK:
@@ -288,12 +261,14 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
     # exit(0)
 
     #doc.save()
-    shapes_fn = RECON_DIR+'Pred_' + datetime.now().strftime("%d%m%y_%H%M")
+    shapes_fn = recon_dir + 'Pred_' + datetime.now().strftime("%d%m%y_%H%M")
     shapes_fn_3d = shapes_fn + '_3D.gpkg'
-    gdf_3D = gpd.GeoDataFrame({'geometry': prediction_geometries, 'NAME': prediction_labels}, geometry='geometry', crs=shapes_crs.name)
+    gdf_3D = gpd.GeoDataFrame({'geometry': prediction_geometries, 'NAME': prediction_labels},
+                              geometry='geometry', crs=SHAPE_CRS)
     gdf_3D.to_file(shapes_fn_3d)
     markers_fn_3d = shapes_fn + '_3D_markers.gpkg'
-    gdf_3D = gpd.GeoDataFrame({'geometry': prediction_markers, 'NAME': prediction_labels}, geometry='geometry', crs=shapes_crs.name)
+    gdf_3D = gpd.GeoDataFrame({'geometry': prediction_markers, 'NAME': prediction_labels},
+                              geometry='geometry', crs=SHAPE_CRS)
     gdf_3D.to_file(markers_fn_3d)
 
     # Save shapes in 2D also
@@ -306,3 +281,20 @@ for RECON_DIR in RECONSTRUCTION_DIRS:
             new_geo.append(Polygon(lines))
     gdf.geometry = new_geo
     gdf.to_file(shapes_fn + '_2D.gpkg')
+
+
+if __name__ == "__main__":
+    with open(DONE_DIRS_FILE, 'r') as todo_file:
+        data_dirs = todo_file.readlines()
+    for dir_line in data_dirs:
+        if 'STOP' in dir_line:
+            break
+        # Check if this is a valid directory that needs processing
+        if len(dir_line) == 1 or '#' in dir_line:
+            continue
+        data_dir = dir_line.split(' ')[0][:13] + '/'
+
+        # Process this directory
+        run_inference(PROCESSED_BASEDIR + data_dir)
+
+        break
