@@ -1,13 +1,13 @@
-import os, sys, io, shutil, re
+import os, shutil
 import pickle
 import pathlib
-from utils import dvl_data_utils
+from deprecated_files import dvl_data_utils
 from matplotlib import pyplot as plt
 import numpy as np
 import zipfile
 import glob
 import xml.etree.ElementTree as ET
-import geopandas as gpd
+
 
 def del_if_exists(path):
     if os.path.exists(path):

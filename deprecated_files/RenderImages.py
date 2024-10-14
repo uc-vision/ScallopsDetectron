@@ -61,8 +61,8 @@ camMtx = np.array([[c.f + c.b1,    c.b2,   c.cx + c.width / 2],
 cam_fov = np.array([math.degrees(2*math.atan(c.width / (2*(c.f + c.b1)))),
                     math.degrees(2*math.atan(c.height / (2*c.f)))])
 print(cam_fov)
-np.save("data/CamMtx.npy", camMtx)
-np.save("data/Extrinsics.npy", np.stack([cam_0_Q, cam_1_Q, cam_2_Q]))
+np.save("../data/CamMtx.npy", camMtx)
+np.save("../data/Extrinsics.npy", np.stack([cam_0_Q, cam_1_Q, cam_2_Q]))
 exit(0)
 
 if RECORD:

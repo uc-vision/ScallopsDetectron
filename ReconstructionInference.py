@@ -17,7 +17,7 @@ import geopandas as gpd
 import pickle
 
 UD_ALPHA = 0
-IMG_RS_MOD = 1
+IMG_RS_MOD = 2
 CAM_IDX_LIMIT = -1
 
 MASK_PNTS_SUB = 200
@@ -29,7 +29,7 @@ ELEV_MEAN_PROX_THRESH = 0.05
 
 CAM_COV_THRESHOLD = 0.02
 
-IMSHOW = False
+IMSHOW = True
 VTK = False
 WAITKEY = 0
 
@@ -58,16 +58,17 @@ def draw_scaled_axes(img, axis_vecs, axis_scales, origin, cam_mtx):
 PROCESSED_BASEDIR = '/csse/research/CVlab/processed_bluerov_data/'
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
 
-MODEL_PATH = "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"  # "/csse/research/CVlab/processed_bluerov_data/training_outputs/first_train_new/"  # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
+MODEL_PATH = "/csse/research/CVlab/processed_bluerov_data/training_outputs/first_train_new/"  #   # "/local/ScallopMaskRCNNOutputs/HR+LR LP AUGS/"
 
 cfg = get_cfg()
 cfg.NUM_GPUS = 1
+cfg.set_new_allowed(True)
 cfg.merge_from_file(MODEL_PATH + 'config.yml')
 model_paths = [str(path) for path in pathlib.Path(MODEL_PATH).glob('*.pth')]
 model_paths.sort()
 cfg.MODEL.WEIGHTS = os.path.join(model_paths[-1])
 
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.8
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
 cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 cfg.TEST.DETECTIONS_PER_IMAGE = 1000
 cfg.TEST.AUG.ENABLED = False
@@ -286,7 +287,7 @@ def run_inference(recon_dir):
 if __name__ == "__main__":
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    for dir_line in data_dirs:
+    for dir_line in data_dirs[2:]:
         if 'STOP' in dir_line:
             break
         # Check if this is a valid directory that needs processing

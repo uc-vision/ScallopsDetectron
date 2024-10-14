@@ -13,7 +13,7 @@ import glob
 import math
 from shapely.geometry import *
 
-DISPLAY = True
+DISPLAY = False
 WAITKEY = 0
 
 CAM_COV_THRESHOLD = 0.02
@@ -57,12 +57,12 @@ def create_dl_file(data_dir):
         shape_gdf = gpd.read_file(shape_path)
         shapes_label = shape_path.split('/')[-1].split('.')[0]
         shape_layers.append(shape_gdf)
-    # shape_layers_vpz = vpz_utils.get_shape_layers_gpd(data_dir, data_dir.split('/')[-2] + '.vpz')
-    # for shape_layer in shape_layers_vpz:
-    #     if 'Poly' in shape_layer[0]:
-    #         shape_layers.append(shape_layer[1])
+    shape_layers_vpz = vpz_utils.get_shape_layers_gpd(data_dir, data_dir.split('/')[-2] + '.vpz')
+    for shape_layer in shape_layers_vpz:
+        if 'poly' in shape_layer[0].lower():
+            shape_layers.append(shape_layer[1])
 
-    print("Loading DEMs")
+    print("Initialising DEM Reader")
     dem_obj = tiff_utils.DEM(data_dir + 'geo_tiffs/')
     # Transformer from geographic/geodetic coordinates to geocentric
     ccs2gcs = lambda pnt: geo_utils.geodetic_to_geocentric(pnt[1], pnt[0], pnt[2])
@@ -203,7 +203,7 @@ def create_dl_file(data_dir):
 if __name__ == '__main__':
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    for dir_line in data_dirs:
+    for dir_line in data_dirs[3:]:
         if 'STOP' in dir_line:
             break
         # Check if this is a valid directory that needs processing

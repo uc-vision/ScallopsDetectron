@@ -10,15 +10,16 @@ import cv2
 from datetime import datetime
 from utils import maskrcnn_setup, train_net, augmentations as A
 
-WRITE = False
+WRITE = True
 RESUME = False
 SHOW_TRAINING_IMGS = False
 
 BASE_DIR = '/csse/research/CVlab/processed_bluerov_data/'  # '/local/'#'/scratch/data/tkr25/'  #
-NUM_GPUS = 1
-BATCH_SIZE = 4
+NUM_GPUS = 3
+BATCH_SIZE = 24  # Images per GPU
 
-CNN_INPUT_SHAPE = (800, 1333)
+IMG_SHAPE = (2056, 2464)
+CNN_INPUT_SHAPE = (1028, 1232)
 
 
 augs = [transforms.RandomBrightness(0.8, 1.2),
@@ -34,23 +35,23 @@ augs = [transforms.RandomBrightness(0.8, 1.2),
         #A.RandomColourNoise(),
         #A.GeometricTransform()
         ]
-no_augs = [transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),]
-           # transforms.ScaleTransform(h=, w=, new_h=CNN_INPUT_SHAPE[0], new_w=CNN_INPUT_SHAPE[1])]
-
+no_augs = [transforms.ScaleTransform(h=IMG_SHAPE[0], w=IMG_SHAPE[1],
+                                     new_h=CNN_INPUT_SHAPE[0], new_w=CNN_INPUT_SHAPE[1],
+                                     interp="nearest")]
+           #  transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),]
 
 EXP_START_IDX = 0
 experiment_titles = ["first_train_new",
                      ]
-augmentation_sets = [augs,
-                     ]
+augmentation_sets = [no_augs]
 
 # valid_dataset = [BASE_DIR+'ScallopMaskDataset/'+dir for dir in ['lowres_scan_210113_064700_prop', 'gopro_116_0_ortho', 'gopro_116_0_prop']]
 # train_dataset_1 = [BASE_DIR+'ScallopReconstructions/'+dir for dir in ['gopro_119/left']]
 # train_valid_dataset_sets = [[train_dataset_1, valid_dataset],
 #                             ]
-valid_dataset = [BASE_DIR + dir for dir in ['240714-140552/']]
-train_dataset_1 = [BASE_DIR + dir for dir in ['240714-140552/']]
-train_valid_dataset_sets = [[train_dataset_1, valid_dataset],
+valid_dataset_1 = [BASE_DIR + dir + '/' for dir in ['240618-090121']]
+train_dataset_1 = [BASE_DIR + dir + '/' for dir in ['240714-140552', '240713-134608']]
+train_valid_dataset_sets = [[train_dataset_1, valid_dataset_1],
                             ]
 
 def main(args):

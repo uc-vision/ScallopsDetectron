@@ -1,8 +1,6 @@
 import Metashape
 import numpy as np
-from utils import dvl_data_utils
-import cv2
-from matplotlib import pyplot as plt
+from deprecated_files import dvl_data_utils
 
 gps2m_scale = np.array([111e3, 111e3, 1])
 

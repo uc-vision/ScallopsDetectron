@@ -17,7 +17,7 @@ def getDatasetDict(dataset_dir):
 def setup(args):
     train_dirs, valid_dirs = args["dataset_dirs"]
     DatasetCatalog.clear()
-    for idx, dataset_dir in enumerate(train_dirs):  # +valid_dirs
+    for idx, dataset_dir in enumerate(train_dirs + valid_dirs):
         DatasetCatalog.register(dataset_dir, lambda dataset_dir=dataset_dir: getDatasetDict(dataset_dir))
         MetadataCatalog.get(dataset_dir).set(thing_classes=["scallop"])
 
@@ -32,10 +32,10 @@ def setup(args):
 
     cfg.OUTPUT_DIR = args["output_dir"]
     cfg.DATASETS.TRAIN = train_dirs
-    cfg.DATASETS.TEST = train_dirs
+    cfg.DATASETS.TEST = valid_dirs
     cfg.TEST.EVAL_PERIOD = 500 // cfg.NUM_GPUS
-    cfg.DATALOADER.NUM_WORKERS = 4
-    cfg.SOLVER.CHECKPOINT_PERIOD = 100  # 5000 // cfg.NUM_GPUS
+    cfg.DATALOADER.NUM_WORKERS = 2 * cfg.NUM_GPUS
+    cfg.SOLVER.CHECKPOINT_PERIOD = 30  # 5000 // cfg.NUM_GPUS
 
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.0
     cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.0
