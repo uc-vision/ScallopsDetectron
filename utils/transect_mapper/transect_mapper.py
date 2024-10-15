@@ -171,6 +171,7 @@ class TransectMapper:
             self.transect_segs.append(estimated_transect_dists)
 
     def gps2transect(self, gps_pnt):
+        # lon, lat
         idx, sub_idx, (f_par, d_per_m) = closest_lineseg_gps(self.line_segs_gps, gps_pnt)
         if idx == -1:
             print(f"GPS point not in transect! {gps_pnt}")

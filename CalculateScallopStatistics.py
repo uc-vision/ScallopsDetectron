@@ -8,6 +8,7 @@ from utils.transect_mapper import transect_mapper
 import os
 import json
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 # Will break code:
 # Overlapping polygons in the same class of either include OR exclude
@@ -17,6 +18,9 @@ SHAPE_CRS = "EPSG:4326"
 
 PROCESSED_BASEDIR = "/csse/research/CVlab/processed_bluerov_data/"
 DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
+
+PARA_DIST_THRESH = 0.2
+PERP_DIST_THRESH = 0.1
 
 def get_poly_arr_2d(poly):
     return np.array(poly.exterior.coords)[:, :2]
@@ -31,7 +35,6 @@ def get_poly_area_m2(poly_gps):
 
 def bin_widths_1_150_mm(widths):
     counts, bins = np.histogram(widths, bins=np.arange(start=1, stop=152))
-    # import matplotlib.pyplot as plt
     # plt.bar(bins[:-1], counts)
     # plt.show()
     hist_dict = {}
@@ -167,13 +170,13 @@ def process_dir(dir_name):
     # If paired site, read from diver data and process
     if transect_map:
         # Get relevant diver data from provided xlsx
-        diver_data_fn = PROCESSED_BASEDIR + 'ruk2401_dive_slate_data_entry Kura Reihana.xlsx'
-        diver_data_xls = pd.ExcelFile(diver_data_fn)
+        diver_data_xls = pd.ExcelFile(PROCESSED_BASEDIR + 'ruk2401_dive_slate_data_entry Kura Reihana.xlsx')
         survey_meas_df = pd.read_excel(diver_data_xls, 'scallop_data')
         site_meas_df = survey_meas_df.loc[survey_meas_df['site'] == site_id]
         survey_metadata_df = pd.read_excel(diver_data_xls, 'metadata')
         site_metadata_df = survey_metadata_df.loc[survey_metadata_df['site'] == site_id]
 
+        diver_entries_transect = []
         diver_points_gps = []
         diver_measurements = []
         tags = []
@@ -184,22 +187,50 @@ def process_dir(dir_name):
             diver_initials = csv_row['diver'].split(' ')[0]
             left_side = 'Left' in str(csv_row['diver'])
             t_perp = (-1 if left_side else 1) * t_perp / 100
+            meas_width_mm = csv_row["SCA_mm"]
+            diver_entries_transect.append([t_para, t_perp, meas_width_mm])
             gps_coord = transect_map.transect2gps([t_para, t_perp])
             if gps_coord is not None:
                 diver_points_gps.append(Point(gps_coord))
-                diver_measurements.append(csv_row["SCA_mm"] / 1000)
+                diver_measurements.append(meas_width_mm)
                 tags.append(diver_initials + ' ' + str(diver_measurements[-1]))
                 perp_ds.append(t_perp)
                 para_ds.append(t_para)
             else:
                 print(f"Transect point {[t_para, t_perp]} is not in reconstructed transect!")
-
         diver_meas_gdf = gp.GeoDataFrame({'NAME': tags, 'geometry': diver_points_gps,
                                           'Dist along T': para_ds, 'Dist to T': perp_ds}, geometry='geometry')
         diver_meas_gdf.set_crs(SHAPE_CRS, inplace=True)
         diver_meas_gdf.to_file(dir_full + 'Diver Measurements.geojson', driver='GeoJSON')
 
+        print("Converting ROV detections / annotations to transect frame and finding closest diver match")
+        diver_meas_arr = np.array([para_ds, perp_ds, diver_measurements])
+        matched_scallop_widths = []
+        for lon, lat, width_rov in zip(scallop_stats['lon'], scallop_stats['lat'], scallop_stats['width_mm']):
+            res = transect_map.gps2transect((lon, lat))
+            if res is None:
+                continue
+            t_para, t_perp = res
+            near_para = np.abs(diver_meas_arr[0] - t_para) < PARA_DIST_THRESH
+            near_perp = np.abs(diver_meas_arr[1] - t_perp) < PERP_DIST_THRESH
+            scallop_near = near_para * near_perp
+            num_matches = np.sum(scallop_near)
+            if num_matches == 0:
+                continue
+            assert np.sum(scallop_near) == 1
+            matched_scallop_widths.append([width_rov, diver_meas_arr[2][scallop_near][0]])
+
+        matched_arr = np.array(matched_scallop_widths).T
+        matched_error = matched_arr[0] - matched_arr[1]
+        rov_count_eff = len(matched_scallop_widths) / len(diver_measurements)
+        print(f"ROV count efficacy = {round(rov_count_eff * 100)} %")
+        print(f"ROV sizing error AVG = {round(np.mean(np.abs(matched_error)))} mm")
+        print(f"ROV sizing bias = {round(np.mean(matched_error))} mm")
+        # plt.hist(matched_error, bins=20)
+        # plt.show()
+
         # TODO: Need err / bias for scallop detection efficiency and sizing, by detected size category
+
         # Add row in diver stats csv for paired site
         diver_search_area = np.sum(site_metadata_df['distance'])
         diver_depth = round(np.mean([np.mean(site_metadata_df[k]) for k in ['depth_s', 'depth_f']]), 2)
@@ -209,7 +240,7 @@ def process_dir(dir_name):
                        'bearing': [diver_bearing],
                        'area m2': [diver_search_area],
                        'count': [len(diver_measurements)]}
-        rov_meas_bins_dict = bin_widths_1_150_mm(np.array(diver_measurements) * 1000)
+        rov_meas_bins_dict = bin_widths_1_150_mm(diver_measurements)
         df_row_dive.update(rov_meas_bins_dict)
         df_row = dict(df_row_shared, **df_row_dive)
         append_to_csv(PROCESSED_BASEDIR + 'scallop_dive_stats.csv', pd.DataFrame(df_row))
