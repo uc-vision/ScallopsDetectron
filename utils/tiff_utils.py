@@ -3,39 +3,39 @@ import glob
 from utils import geo_utils
 import numpy as np
 
+TIFF_PAGE = 2
+
 class DEM:
     def __init__(self, tiff_dir):
-        self.dem_tiff_paths = glob.glob(tiff_dir + '*-dem-*.tif')
+        dem_tiff_paths = glob.glob(tiff_dir + '*-dem-*.tif')
+        self.dem_imgs = []
         self.dem_res_gps = []
-        ortho_lonlat = []
-        self.open_dem_idx = None
-        self.open_dem = None
-        for tif_pth in self.dem_tiff_paths:
+        ortho_lonlats = []
+        for tif_pth in dem_tiff_paths:
             ortho_tiff_obj = tifffile.TiffFile(tif_pth)
-            ortho_page_0 = ortho_tiff_obj.pages[0]  # Pages are resolution pyramid
-            self.dem_res_gps.append(np.array(ortho_page_0.tags['ModelPixelScaleTag'].value)[:2])
-            ortho_tiepoint = ortho_page_0.tags['ModelTiepointTag'].value
-            ortho_lonlat.append(np.array(ortho_tiepoint)[3:5])  # Top left
-            # res_xy_m = geo_utils.convert_gps2local(ortho_lonlat, [ortho_lonlat + pix_res_gps])[0]
-        self.ortho_lonlat = np.array(ortho_lonlat)
+            self.dem_imgs.append(tifffile.imread(tif_pth, key=TIFF_PAGE))
+            ortho_page = ortho_tiff_obj.pages[TIFF_PAGE]  # Pages are resolution pyramid
+            self.dem_res_gps.append(np.array(ortho_page.tags['ModelPixelScaleTag'].value)[:2])
+            ortho_tiepoint = ortho_page.tags['ModelTiepointTag'].value
+            ortho_lonlat = np.array(ortho_tiepoint)[3:5]
+            ortho_lonlats.append(ortho_lonlat)  # Top left
+            res_xy_m = geo_utils.convert_gps2local(ortho_lonlat, [ortho_lonlat + np.array(self.dem_res_gps[-1])])[0]
+            print(f"Tiff {tif_pth.split('/')[-1]} page {TIFF_PAGE}, res [m] = {np.round(res_xy_m, 4)}")
+        self.ortho_lonlats = np.array(ortho_lonlats)
 
     def get_elevation_gps(self, gps_pnt):
         # lon lat
-        vec_gps = gps_pnt - self.ortho_lonlat
+        vec_gps = gps_pnt - self.ortho_lonlats
         vec_gps[np.where(vec_gps[:, 0] < 0), :] = 100
         vec_gps[np.where(vec_gps[:, 1] > 0), :] = 100
         tiff_idx = np.argmin(np.abs(vec_gps).sum(axis=1))
         pix_idx = (np.array([1, -1]) * vec_gps[tiff_idx] / self.dem_res_gps[tiff_idx])[::-1].astype(int)
-        if self.open_dem_idx is None or tiff_idx != self.open_dem_idx:
-            self.open_dem = tifffile.imread(self.dem_tiff_paths[tiff_idx])
-            self.open_dem_idx = tiff_idx
-        elevation = self.open_dem[tuple(pix_idx)]
+        elevation = self.dem_imgs[tiff_idx][tuple(pix_idx)]
         return elevation
 
-    def get_3d_polygon(self, polygon_2d):
+    def poly3d_from_dem(self, polygon_2d):
         polygon_3d = []
         for pnt in polygon_2d:
             z_val = self.get_elevation_gps(pnt)
-            # TODO: deal with bad elevation values
             polygon_3d.append([pnt[0], pnt[1], z_val])
         return np.array(polygon_3d)

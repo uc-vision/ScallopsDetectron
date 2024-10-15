@@ -20,5 +20,8 @@ def get_shape_layers_gpd(dir_path, vpz_fn):
                     shape_fn = dir_path + elem_src[0].attrib['path']
                 else:
                     continue
-                shape_layers.append([child.attrib['label'], gp.read_file(shape_fn)])
+                try:
+                    shape_layers.append([child.attrib['label'], gp.read_file(shape_fn)])
+                except Exception as e:
+                    print(e)
     return shape_layers

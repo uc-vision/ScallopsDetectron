@@ -33,9 +33,10 @@ def setup(args):
     cfg.OUTPUT_DIR = args["output_dir"]
     cfg.DATASETS.TRAIN = train_dirs
     cfg.DATASETS.TEST = valid_dirs
+    cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS = False  # Use all images including those without scallops
     cfg.TEST.EVAL_PERIOD = 500 // cfg.NUM_GPUS
     cfg.DATALOADER.NUM_WORKERS = 2 * cfg.NUM_GPUS
-    cfg.SOLVER.CHECKPOINT_PERIOD = 30  # 5000 // cfg.NUM_GPUS
+    cfg.SOLVER.CHECKPOINT_PERIOD = 600 // cfg.NUM_GPUS
 
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.0
     cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.0
@@ -43,7 +44,7 @@ def setup(args):
     cfg.SOLVER.BASE_LR = cfg.NUM_GPUS * 0.001
     cfg.SOLVER.GAMMA = 0.1
     # The iteration number to decrease learning rate by GAMMA.
-    cfg.SOLVER.STEPS = (5000 // cfg.NUM_GPUS,)
+    cfg.SOLVER.STEPS = (10000 // cfg.NUM_GPUS,)
 
     cfg.SOLVER.MAX_ITER = 20000 // cfg.NUM_GPUS
     cfg.SOLVER.MOMENTUM = 0.9

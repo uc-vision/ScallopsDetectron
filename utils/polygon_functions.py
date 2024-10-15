@@ -27,16 +27,21 @@ def filter_polygon_detections(polygon_detections):
     return np.array(valid_polygons, dtype=object), np.array(invalid_polygons, dtype=object)
 
 FOV_MUL = 1.2
-def in_camera_fov(polygon_cam, cam_fov):
-    polygon_center = np.mean(polygon_cam, axis=1)
-    vec_zy = polygon_center * np.array([0, 1, 1])
+
+def pnt_in_cam_fov(pnt, cam_fov, tol_deg=0):
+    tol_rad = math.radians(tol_deg)
+    vec_zy = pnt * np.array([0, 1, 1])
     vec_zy /= np.linalg.norm(vec_zy) + 1e-9
-    vec_zx = polygon_center * np.array([1, 0, 1])
+    vec_zx = pnt * np.array([1, 0, 1])
     vec_zx /= np.linalg.norm(vec_zx) + 1e-9
     angle_x = math.acos(vec_zx[2])
     angle_y = math.acos(vec_zy[2])
     angle_thresh = FOV_MUL * cam_fov / 2
-    return angle_x < angle_thresh[0] and angle_y < angle_thresh[1]
+    return angle_x < angle_thresh[0] + tol_rad and angle_y < angle_thresh[1] + tol_rad
+
+def in_camera_fov(polygon_cam, cam_fov, tol_deg=10):
+    polygon_center = np.mean(polygon_cam, axis=1)
+    return pnt_in_cam_fov(polygon_center, cam_fov, tol=tol_deg)
 
 def is_scallop_eigs(pca_eigen_values):
     w_to_l = pca_eigen_values[0] / pca_eigen_values[1]

@@ -16,7 +16,7 @@ import geopandas as gpd
 # TODO: outlier removal
 
 
-VPZ_DIR = '/csse/research/CVlab/processed_bluerov_data/240714-140552/'
+VPZ_DIR = '/csse/research/CVlab/processed_bluerov_data/240617-080551/'
 
 SAVE_PLT = True
 DISPLAY = False
@@ -39,7 +39,7 @@ for detection in scallops_gpd.itertuples():
     conf = float(eval(label)['conf'])
     scallop_polys_gps.append([poly_lonlatz, conf])
 
-datum = scallop_polys_gps[0][0][0][:2]
+datum = scallop_polys_gps[0][0][0]
 scallop_polys_local = [[geo_utils.convert_gps2local(datum, p), c] for p, c in scallop_polys_gps]
 
 polygons_d = {"detections": scallop_polys_local}

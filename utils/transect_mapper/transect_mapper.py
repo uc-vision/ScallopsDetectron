@@ -129,7 +129,7 @@ class TransectMapper:
             self.gps_gt.append(gt_gps_pnt)
             self.transect_gt.append(gt_td_par)
 
-        print(transect_gts_idxval)
+        # print(transect_gts_idxval)
 
         self.transect_segs_wm = [[0.0]*len(seg) for seg in self.line_segs_gps]
         for seg_idx, seg in enumerate(self.transect_segs_wm):

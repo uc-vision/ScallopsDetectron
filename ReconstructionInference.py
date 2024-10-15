@@ -16,9 +16,7 @@ from shapely.geometry import Polygon, Point
 import geopandas as gpd
 import pickle
 
-UD_ALPHA = 0
 IMG_RS_MOD = 2
-CAM_IDX_LIMIT = -1
 
 MASK_PNTS_SUB = 200
 
@@ -29,7 +27,7 @@ ELEV_MEAN_PROX_THRESH = 0.05
 
 CAM_COV_THRESHOLD = 0.02
 
-IMSHOW = True
+IMSHOW = False
 VTK = False
 WAITKEY = 0
 
@@ -68,7 +66,7 @@ model_paths = [str(path) for path in pathlib.Path(MODEL_PATH).glob('*.pth')]
 model_paths.sort()
 cfg.MODEL.WEIGHTS = os.path.join(model_paths[-1])
 
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.1
 cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.5
 cfg.TEST.DETECTIONS_PER_IMAGE = 1000
 cfg.TEST.AUG.ENABLED = False
@@ -105,6 +103,7 @@ def TransformPoints(pnts, transform_quart):
 
 
 def run_inference(recon_dir):
+    print(f"Running inference on {recon_dir}")
     print("Loading Chunk Telemetry")
     with open(recon_dir + "chunk_telemetry.pkl", "rb") as pkl_file:
         chunk_telem = pickle.load(pkl_file)
@@ -124,8 +123,8 @@ def run_inference(recon_dir):
     cnt = 0
     for cam_label, cam_telem in tqdm(camera_telem.items()):
         cnt += 1
-        if cnt % 10 != 0:
-            continue
+        # if cnt % 10 != 0:
+        #     continue
         cam_quart = cam_telem['q44']
         cam_cov = cam_telem['loc_cov33']
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
@@ -267,10 +266,10 @@ def run_inference(recon_dir):
     gdf_3D = gpd.GeoDataFrame({'geometry': prediction_geometries, 'NAME': prediction_labels},
                               geometry='geometry', crs=SHAPE_CRS)
     gdf_3D.to_file(shapes_fn_3d)
-    markers_fn_3d = shapes_fn + '_3D_markers.gpkg'
-    gdf_3D = gpd.GeoDataFrame({'geometry': prediction_markers, 'NAME': prediction_labels},
-                              geometry='geometry', crs=SHAPE_CRS)
-    gdf_3D.to_file(markers_fn_3d)
+    # markers_fn_3d = shapes_fn + '_3D_markers.gpkg'
+    # gdf_3D = gpd.GeoDataFrame({'geometry': prediction_markers, 'NAME': prediction_labels},
+    #                           geometry='geometry', crs=SHAPE_CRS)
+    # gdf_3D.to_file(markers_fn_3d)
 
     # Save shapes in 2D also
     gdf = gpd.read_file(shapes_fn_3d)
@@ -287,7 +286,7 @@ def run_inference(recon_dir):
 if __name__ == "__main__":
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    for dir_line in data_dirs[2:]:
+    for dir_line in data_dirs[8:]:
         if 'STOP' in dir_line:
             break
         # Check if this is a valid directory that needs processing

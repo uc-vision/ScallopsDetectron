@@ -89,7 +89,6 @@ class mAPEvaluator(DatasetEvaluator):
                 gt_masks = structures.BitMasks.from_polygon_masks(input['instances'].gt_masks, input["height"], input["width"])
                 masks_pred_rle = mask_util.encode(np.asfortranarray(pred_masks.transpose([1, 2, 0])))
                 masks_gt_rle = mask_util.encode(np.asfortranarray(gt_masks.tensor.numpy().transpose([1, 2, 0])))
-                print()
                 MASK_IOUs = mask_util.iou(masks_pred_rle, masks_gt_rle, len(gt_bboxes)*[0])
                 BOX_IOUs = structures.pairwise_iou(gt_bboxes, pred_bboxes).cpu().detach().numpy()
                 result_tuples = list(zip(pred_scores, TPs(BOX_IOUs), TPs(MASK_IOUs)))

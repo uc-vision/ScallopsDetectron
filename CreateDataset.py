@@ -4,7 +4,7 @@ from matplotlib import pyplot as plt
 import cv2
 from detectron2.structures import BoxMode
 from utils import polygon_functions as spf
-from utils import vpz_utils, tiff_utils, geo_utils
+from utils import vpz_utils, tiff_utils, geo_utils, file_utils
 import geopandas as gpd
 import pickle
 import json
@@ -23,8 +23,13 @@ CAM_SCALLOP_Z_THRESH = 2.0
 
 PIX_EDGE_THRESH_CORNER = 10
 
+IMG_SHAPE = (2056, 2464)
+IMG_RS_MOD = 2
+CNN_INPUT_SHAPE = (IMG_SHAPE[0] // IMG_RS_MOD, IMG_SHAPE[1] // IMG_RS_MOD)
+NON_SCALLOP_DOWNSAMPLE = 10
+
 PROCESSED_BASEDIR = '/csse/research/CVlab/processed_bluerov_data/'
-DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_done.txt'
+DONE_DIRS_FILE = PROCESSED_BASEDIR + 'dirs_annotation_log.txt'
 
 def TransformPoints(pnts, transform_quart):
     return np.matmul(transform_quart, np.vstack([pnts, np.ones((1, pnts.shape[1]))]))[:3, :]
@@ -34,7 +39,11 @@ def CamVecToPixCoord(pnts_cam, cam_mtx):
     return (pix_dash / pix_dash[2, :])[:2, :]
 
 
-def create_dl_file(data_dir):
+def create_dataset(data_dir):
+
+    dataset_name = 'dataset-' + data_dir.split('/')[-2]
+    file_utils.ensure_dir_exists(data_dir + dataset_name, clear=True)
+
     if DISPLAY:
         cv2.namedWindow("Annotated img", cv2.WINDOW_GUI_NORMAL)
 
@@ -72,9 +81,21 @@ def create_dl_file(data_dir):
         for i, row in shape_gdf.iterrows():
             if isinstance(row.geometry, Polygon):
                 poly_2d = np.array(row.geometry.exterior.coords)[:, :2]
-                poly_3d = dem_obj.get_3d_polygon(poly_2d)
+                poly_3d = dem_obj.poly3d_from_dem(poly_2d)
                 poly_3d_geocentric = np.apply_along_axis(ccs2gcs, 1, poly_3d)
                 poly_3d_chunk = TransformPoints(poly_3d_geocentric.T, chunk_inv_transform).T
+
+                poly_zs = poly_3d_chunk[:, 2]
+                median_z = np.median(poly_zs)
+                fwd_dz = poly_zs[1:] - poly_zs[:-1]
+                wrap_dz = poly_zs[0] - poly_zs[-1]
+                dz_sum = np.zeros_like(poly_zs)
+                dz_sum[:-1] = fwd_dz
+                dz_sum[1:] += fwd_dz
+                dz_sum[0] += wrap_dz
+                dz_sum[-1] += wrap_dz
+                poly_3d_chunk[:, 2][np.where(dz_sum > 0.04 / chunk_scale)] = median_z
+                #print(np.max(dz_sum))
 
                 eig_vecs, eig_vals, center_pnt = spf.pca(poly_3d_chunk)
                 poly_principal = np.matmul(np.linalg.inv(eig_vecs), (poly_3d_chunk - center_pnt).T)
@@ -83,7 +104,8 @@ def create_dl_file(data_dir):
                 # if np.max(z_dist) > 0.01:
                 #     print(z_dist)
 
-                # TODO: flatten polygon elevation values - PCA doesnt work when there is alot of noise
+                # TODO: flatten polygon elevation values
+                # TODO: PCA doesnt work when there is alot of noise
 
                 poly_principal[2] = 0.0
                 poly_3d_chunk = np.matmul(eig_vecs, poly_principal).T + center_pnt
@@ -94,19 +116,25 @@ def create_dl_file(data_dir):
     print("Number of valid scallop polygons in chunk: {}".format(len(polygons_chunk)))
 
     img_id = 0
+    skip_num = 0
     label_dict = []
     for cam_label, cam_telem in tqdm(camera_telem.items()):
         cam_quart = cam_telem['q44']
+        cam_quart_inv = np.linalg.inv(cam_quart)
         cam_cov = cam_telem['loc_cov33']
         xyz_cov_mean = cam_cov[(0, 1, 2), (0, 1, 2)].mean()
+        # Check camera accuracy
         if xyz_cov_mean > CAM_COV_THRESHOLD / chunk_scale:
             continue
-        img_shape = cam_telem['shape']
+        height, width = cam_telem['shape']
         img_path_rel = cam_telem['cpath']
         img_path = data_dir + img_path_rel
         camMtx = cam_telem['cam_mtx']
+        camMtx[:2, :] /= IMG_RS_MOD
         camDist = cam_telem['cam_dist']
         cam_fov = cam_telem['cam_fov']
+
+        # TODO: write RS images to dataset directory
 
         # img = np.frombuffer(cam_img_m.tostring(), dtype=np.uint8).reshape((int(cam_img_m.height), int(cam_img_m.width), -1))[:, :, ::-1]
         # img_cam_und = cv2.undistort(img, cameraMatrix=camMtx, distCoeffs=camDist, newCameraMatrix=newcameramtx)
@@ -129,27 +157,22 @@ def create_dl_file(data_dir):
         #                 cv2.circle(valid_pixel_mask, tuple(valid_pix_int), 100, (1, 1, 1), -1)
         # img_cam_und_roi *= valid_pixel_mask
 
-        record = {}
-        height, width = img_shape
-        record["file_name"] = img_path_rel
-        record["height"] = height
-        record["width"] = width
-        record["image_id"] = img_id
-        img_id += 1
         objs = []
         display_polygon_l = []
         display_bxs = []
-
+        scallop_in_img = False
         for scallop_id, polygon in enumerate(polygons_chunk):
-            polygon_cam = TransformPoints(polygon.T, np.linalg.inv(cam_quart))
-            if not spf.in_camera_fov(polygon_cam, cam_fov):
+            polygon_center_cam = TransformPoints(polygon.mean(axis=0)[:, None], cam_quart_inv).T[0]
+            if not spf.pnt_in_cam_fov(polygon_center_cam, cam_fov, tol_deg=10):
                 continue
+            polygon_cam = TransformPoints(polygon.T, cam_quart_inv)
             pix_coords = spf.Project2Img(polygon_cam, camMtx, camDist).astype(int).T
             valid_pix_coords = pix_coords[:, np.where((pix_coords[0, :] >= 0) * (pix_coords[0, :] < width) *
                                                       (pix_coords[1, :] >= 0) * (pix_coords[1, :] < height))][:, 0,
                                :]
             if valid_pix_coords.shape[1] < 3:
                 continue
+            scallop_in_img = True
 
             # Fill in corner detections where it would cut
             is_edge = np.less(valid_pix_coords, PIX_EDGE_THRESH_CORNER) + \
@@ -178,11 +201,30 @@ def create_dl_file(data_dir):
                 "name": 'scallop',
             }
             objs.append(obj)
+
+        if skip_num < NON_SCALLOP_DOWNSAMPLE and not scallop_in_img:
+            skip_num += 1
+            continue
+        if skip_num >= NON_SCALLOP_DOWNSAMPLE:
+            skip_num = 0
+
+        img_fn = cam_label + '.jpeg'
+        img_ds_fpath = data_dir + dataset_name + '/' + img_fn
+        cimg = cv2.imread(img_path)
+        cimg_rs = cv2.resize(cimg, CNN_INPUT_SHAPE[::-1])
+        cv2.imwrite(img_ds_fpath, cimg_rs)
+
+        record = {}
+        record["file_name"] = img_fn
+        record["height"] = height // IMG_RS_MOD
+        record["width"] = width // IMG_RS_MOD
+        record["image_id"] = img_id
+        img_id += 1
         record["annotations"] = objs
         label_dict.append(record)
 
-        if DISPLAY and len(display_polygon_l):
-            drawing = cv2.imread(img_path)
+        if DISPLAY:  # and len(display_polygon_l):
+            drawing = cimg_rs
             for polygon in display_polygon_l:
                 cv2.polylines(drawing, [polygon], False, (0, 255, 0), thickness=2)
             for box_pt1, box_pt2 in display_bxs:
@@ -196,23 +238,23 @@ def create_dl_file(data_dir):
 
     if not DISPLAY:
         print("Saving annotations json...")
-        with open(data_dir + "scallop_dataset.json", 'w') as fp:
+        with open(data_dir + dataset_name + "/scallop_dataset.json", 'w') as fp:
             json.dump(label_dict, fp)
 
 
 if __name__ == '__main__':
     with open(DONE_DIRS_FILE, 'r') as todo_file:
         data_dirs = todo_file.readlines()
-    for dir_line in data_dirs[3:]:
+    for dir_line in data_dirs:
         if 'STOP' in dir_line:
             break
         # Check if this is a valid directory that needs processing
         if len(dir_line) == 1 or '#' in dir_line:
             continue
+        if not 'done' in dir_line.lower():
+            continue
         data_dir = dir_line.split(' ')[0][:13] + '/'
+        print("Processing Annotations", data_dir)
 
         # Process this directory
-        create_dl_file(PROCESSED_BASEDIR + data_dir)
-
-        break
-
+        create_dataset(PROCESSED_BASEDIR + data_dir)

@@ -8,51 +8,50 @@ from detectron2.data import build_detection_train_loader
 from detectron2.utils.visualizer import Visualizer
 import cv2
 from datetime import datetime
-from utils import maskrcnn_setup, train_net, augmentations as A
+from utils import maskrcnn_setup, train_net, file_utils, augmentations as A
+from CreateDataset import CNN_INPUT_SHAPE
 
 WRITE = True
-RESUME = False
+RESUME = True
 SHOW_TRAINING_IMGS = False
 
 BASE_DIR = '/csse/research/CVlab/processed_bluerov_data/'  # '/local/'#'/scratch/data/tkr25/'  #
 NUM_GPUS = 3
-BATCH_SIZE = 24  # Images per GPU
-
-IMG_SHAPE = (2056, 2464)
-CNN_INPUT_SHAPE = (1028, 1232)
-
+BATCH_SIZE = 20  # Images per GPU
 
 augs = [transforms.RandomBrightness(0.8, 1.2),
         transforms.RandomContrast(0.8, 1.2),
         transforms.RandomSaturation(0.8, 1.2),
         transforms.RandomLighting(2),
-        transforms.RandomRotation([-90, 0, 90, 180], sample_style="choice"),
+        # transforms.RandomRotation([-90, 0, 90, 180], sample_style="choice"),
         transforms.RandomFlip(prob=0.5, horizontal=True, vertical=False),
         transforms.RandomFlip(prob=0.5, horizontal=False, vertical=True),
         #transforms.ResizeScale(min_scale=1, max_scale=4.0, target_height=CNN_INPUT_SHAPE[0], target_width=CNN_INPUT_SHAPE[1]),
-        transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),
+        # transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),
         #A.RandomErasing(),
         #A.RandomColourNoise(),
         #A.GeometricTransform()
         ]
-no_augs = [transforms.ScaleTransform(h=IMG_SHAPE[0], w=IMG_SHAPE[1],
-                                     new_h=CNN_INPUT_SHAPE[0], new_w=CNN_INPUT_SHAPE[1],
-                                     interp="nearest")]
+no_augs = []  # transforms.ScaleTransform(h=IMG_SHAPE[0], w=IMG_SHAPE[1],
+#                                      new_h=CNN_INPUT_SHAPE[0], new_w=CNN_INPUT_SHAPE[1],
+#                                      interp="nearest")]
            #  transforms.RandomCrop(crop_type="absolute", crop_size=CNN_INPUT_SHAPE),]
 
 EXP_START_IDX = 0
-experiment_titles = ["first_train_new",
-                     ]
+experiment_titles = ["first_train_new",]
 augmentation_sets = [no_augs]
 
 # valid_dataset = [BASE_DIR+'ScallopMaskDataset/'+dir for dir in ['lowres_scan_210113_064700_prop', 'gopro_116_0_ortho', 'gopro_116_0_prop']]
 # train_dataset_1 = [BASE_DIR+'ScallopReconstructions/'+dir for dir in ['gopro_119/left']]
 # train_valid_dataset_sets = [[train_dataset_1, valid_dataset],
 #                             ]
-valid_dataset_1 = [BASE_DIR + dir + '/' for dir in ['240618-090121']]
-train_dataset_1 = [BASE_DIR + dir + '/' for dir in ['240714-140552', '240713-134608']]
-train_valid_dataset_sets = [[train_dataset_1, valid_dataset_1],
-                            ]
+valid_dataset_1 = ['240713-104835', '240616-082046', '240629-105107', '240627-113019']
+valid_dataset_1 = [BASE_DIR + d + '/dataset-' + d + '/' for d in valid_dataset_1]
+train_dataset_1 = ['240714-140552', '240713-134608', '240628-073947', '240618-090121',
+                   '240629-152334', '240628-084724', '240626-154500', '240629-121748',
+                   '240607-093240',]  # '240626-162116', '240626-165556', '240626-101911']
+train_dataset_1 = [BASE_DIR + d + '/dataset-' + d + '/' for d in train_dataset_1]
+datasets = [[train_dataset_1, valid_dataset_1]]
 
 def main(args):
     cfg = maskrcnn_setup.setup(args)
@@ -82,13 +81,10 @@ if __name__ == '__main__':
     for exp_idx in np.arange(EXP_START_IDX, len(experiment_titles)):
         exp_title = experiment_titles[exp_idx]
         exp_augs = augmentation_sets[exp_idx]
-        exp_datasets = train_valid_dataset_sets[exp_idx]
+        exp_datasets = datasets[exp_idx]
         output_dir = BASE_DIR + 'training_outputs/' + exp_title
+        file_utils.ensure_dir_exists(output_dir, clear=WRITE and not RESUME)
 
-        try:
-            os.mkdir(output_dir)
-        except OSError as error:
-            print(error)
         if WRITE and not RESUME:
             [path.unlink() for path in pathlib.Path(output_dir).iterdir()]
             with open(output_dir + "/Info.txt", 'w') as info_f:
